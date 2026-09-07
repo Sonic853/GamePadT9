@@ -1,0 +1,66 @@
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace GamePadT9;
+
+internal readonly record struct Target(nint Endpoint, nint Foreground, uint Epoch, uint Process);
+internal sealed class TsfClient
+{
+    private const uint ProbeMessage = 0x8000 + 91, ReceiptMessage = 0x8000 + 92;
+    private uint request = (uint)Random.Shared.Next(1, int.MaxValue);
+    public static Target? FindTarget()
+    {
+        var foreground = GetForegroundWindow();
+        GetWindowThreadProcessId(foreground, out var pid);
+        nint endpoint = 0;
+        while ((endpoint = FindWindowEx(new nint(-3), endpoint, "GamePadT9.TextService.v1", null)) != 0)
+        {
+            GetWindowThreadProcessId(endpoint, out var endpointPid);
+            if (endpointPid != pid) continue;
+            if (Send(endpoint, ProbeMessage, 0, 0, out var token) && token is > 0 and <= int.MaxValue)
+                return new(endpoint, foreground, (uint)token, pid);
+        }
+        return null;
+    }
+    public async Task<string?> Commit(Target target, string text)
+    {
+        if (FindTarget() != target) return "目标文本框已经变化，未提交。";
+        if (text.Length is 0 or > 1024) return "提交文本长度无效。";
+        var id = ++request; if (id == 0) id = ++request;
+        var bytes = new byte[16 + text.Length * 2];
+        BitConverter.GetBytes(1u).CopyTo(bytes, 0);
+        BitConverter.GetBytes(target.Epoch).CopyTo(bytes, 4);
+        BitConverter.GetBytes(id).CopyTo(bytes, 8);
+        BitConverter.GetBytes((uint)text.Length).CopyTo(bytes, 12);
+        Encoding.Unicode.GetBytes(text).CopyTo(bytes, 16);
+        var data = Marshal.AllocHGlobal(bytes.Length);
+        var packetPtr = Marshal.AllocHGlobal(Marshal.SizeOf<CopyData>());
+        bool accepted;
+        try
+        {
+            Marshal.Copy(bytes, 0, data, bytes.Length);
+            Marshal.StructureToPtr(new CopyData { Magic = 0x39545047, Size = (uint)bytes.Length, Data = data }, packetPtr, false);
+            accepted = Send(target.Endpoint, 0x004A, target.Foreground, packetPtr, out var result) && result == 1;
+        }
+        finally { Marshal.FreeHGlobal(packetPtr); Marshal.FreeHGlobal(data); }
+        // Even on a message timeout, query the receipt: the receiver may already have inserted.
+        for (var i = 0; i < 100; i++)
+        {
+            if (Send(target.Endpoint, ReceiptMessage, unchecked((nint)id), 0, out var status))
+            {
+                if (status == 2) return null;
+                if (status == 3) return "TSF 编辑失败，文本未提交。";
+                if (status == 0 && !accepted) return "TSF 拒绝请求，请检查当前文本框及输入法。";
+            }
+            await Task.Delay(20);
+        }
+        return "未收到 TSF 完成确认。为避免重复文字，不自动重试；请检查目标文本框后按 B 清除。";
+    }
+    private static bool Send(nint hwnd, uint message, nint wp, nint lp, out nuint result)
+        => SendMessageTimeout(hwnd, message, wp, lp, 0x0002 | 0x0020, 250, out result) != 0;
+    [StructLayout(LayoutKind.Sequential)] private struct CopyData { public nuint Magic; public uint Size; public nint Data; }
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "FindWindowExW")] private static extern nint FindWindowEx(nint parent, nint after, string className, string? title);
+    [DllImport("user32.dll")] internal static extern nint GetForegroundWindow();
+    [DllImport("user32.dll")] internal static extern uint GetWindowThreadProcessId(nint window, out uint pid);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageTimeoutW")] private static extern nint SendMessageTimeout(nint hwnd, uint msg, nint wp, nint lp, uint flags, uint timeout, out nuint result);
+}

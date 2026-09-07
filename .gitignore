@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+artifacts/
+.cache/
+runtime/
+data/generated/
+data/installed/
+gamepadt9.json
+*.user
+/Bridge.lib
+/Bridge.exp
