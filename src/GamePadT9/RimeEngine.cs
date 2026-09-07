@@ -76,10 +76,12 @@ internal sealed class RimeEngine : IDisposable
         if (PendingCommit.Length != 0) throw new InvalidOperationException("尚有未确认的 TSF 提交，不能继续输入。");
         Native.RimeProcessKey(session, key, 0); Refresh();
     }
-    public void Confirm()
+    public void Confirm(int? index = null)
     {
         if (PendingCommit.Length != 0 || View.Candidates.Length == 0) return;
-        if (Native.RimeSelectCandidateOnCurrentPage(session, (nuint)View.Highlight) == 0)
+        var selected = index ?? View.Highlight;
+        if ((uint)selected >= View.Candidates.Length) throw new ArgumentOutOfRangeException(nameof(index));
+        if (Native.RimeSelectCandidateOnCurrentPage(session, (nuint)selected) == 0)
             throw new InvalidOperationException("引擎拒绝选择候选。");
         Refresh();
     }

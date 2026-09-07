@@ -24,5 +24,10 @@ $batchPath = Join-Path $nativeOut 'build-native.cmd'
 if ($LASTEXITCODE -ne 0) { throw 'Native bridge build failed.' }
 dotnet build (Join-Path $projectRoot 'src\GamePadT9\GamePadT9.csproj') -c Release -o (Join-Path $projectRoot 'artifacts\app') --nologo
 if ($LASTEXITCODE -ne 0) { throw 'C# build failed.' }
-Copy-Item -LiteralPath (Join-Path $nativeOut 'GamePadT9.TextService.dll') -Destination (Join-Path $projectRoot 'artifacts\app')
-Copy-Item -LiteralPath (Join-Path $nativeOut 'BridgeControl.exe') -Destination (Join-Path $projectRoot 'artifacts\app')
+$bridgeHash = (Get-FileHash -LiteralPath (Join-Path $nativeOut 'GamePadT9.TextService.dll') -Algorithm SHA256).Hash.Substring(0,16)
+$bridgeFolder = Join-Path $projectRoot "artifacts\tsf\$bridgeHash"
+if (!(Test-Path -LiteralPath $bridgeFolder)) {
+    New-Item -ItemType Directory -Force $bridgeFolder | Out-Null
+    Copy-Item -LiteralPath (Join-Path $nativeOut 'GamePadT9.TextService.dll'),(Join-Path $nativeOut 'BridgeControl.exe') -Destination $bridgeFolder
+}
+[IO.File]::WriteAllText((Join-Path $projectRoot 'artifacts\app\bridge-path.txt'), $bridgeFolder)

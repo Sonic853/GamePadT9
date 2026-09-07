@@ -1,7 +1,9 @@
 param([switch]$Unregister)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$control = Join-Path $projectRoot 'artifacts\app\BridgeControl.exe'
+$locationFile = Join-Path $projectRoot 'artifacts\app\bridge-path.txt'
+$bridgeFolder = if (Test-Path -LiteralPath $locationFile) { (Get-Content -LiteralPath $locationFile -Raw).Trim() } else { Join-Path $projectRoot 'artifacts\app' }
+$control = Join-Path $bridgeFolder 'BridgeControl.exe'
 if (!(Test-Path -LiteralPath $control)) { throw 'Run scripts/build.ps1 first.' }
 $action = if ($Unregister) { 'unregister' } else { 'register' }
 # Windows TSF profile/category registration needs an elevated token.

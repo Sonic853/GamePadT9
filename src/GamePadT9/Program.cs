@@ -23,14 +23,14 @@ internal static class Program
             if (!first) throw new InvalidOperationException("GamePad T9 已在运行。请先关闭已有实例。");
             using var engine = new RimeEngine(Settings.Load(root));
             if (args.Contains("--self-test")) return Validation.Run(root, engine);
-            if (args.Contains("--verify-notepad"))
+            if (args.Contains("--verify-notepad") || args.Contains("--verify-editor"))
             {
-                using var verification = new NotepadValidation(root, engine);
+                using var verification = new NotepadValidation(root, engine, args.Contains("--verify-editor"));
                 System.Windows.Forms.Application.Run(verification);
                 return verification.Result;
             }
-            using var form = new MainForm(engine);
-            System.Windows.Forms.Application.Run(form);
+            using var host = new GamePadApplication(engine);
+            System.Windows.Forms.Application.Run(host);
             return 0;
         }
         catch (Exception ex)
@@ -42,7 +42,9 @@ internal static class Program
     }
     internal static int Control(string action)
     {
-        var info = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "BridgeControl.exe"))
+        var locationFile = Path.Combine(AppContext.BaseDirectory, "bridge-path.txt");
+        var bridgeFolder = File.Exists(locationFile) ? File.ReadAllText(locationFile).Trim() : AppContext.BaseDirectory;
+        var info = new ProcessStartInfo(Path.Combine(bridgeFolder, "BridgeControl.exe"))
         { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden, RedirectStandardOutput = true, RedirectStandardError = true };
         info.ArgumentList.Add(action);
         using var process = Process.Start(info) ?? throw new IOException("无法启动 TSF 注册工具。");
@@ -73,6 +75,16 @@ internal static class Validation
         pad.Update(new Gamepad { Buttons = Buttons.B }, 80);
         Check(pad.Update(new Gamepad { Buttons = Buttons.B }, 1080).Single().Action == PadAction.Disable, "Long B disables input");
         Check(pad.Update(default, 1090).Count == 0, "Long B release does not also cancel");
+        var modeChange = pad.Update(new Gamepad { Buttons = Buttons.Y, RT = 200 }, 1100);
+        Check(modeChange.Count == 1 && modeChange[0].Action == PadAction.SwitchMode, "Y mode switch suppresses simultaneous trigger input");
+        Check(pad.Update(new Gamepad { Buttons = Buttons.Y, RT = 200 }, 1110).Count == 0, "Held Y does not toggle repeatedly");
+        pad.Update(default, 1120);
+        var r3 = pad.Update(new Gamepad { Buttons = Buttons.R3 }, 1130);
+        Check(r3.Single().StickClick, "R3 remains distinguishable for numeric zero");
+        var numericBlocked = false;
+        try { NumericInput.SendDigit(InputMode.T9, 5, 0); }
+        catch (InvalidOperationException) { numericBlocked = true; }
+        Check(numericBlocked && NumericInput.SentKeyEvents == 0, "Keyboard injection is rejected outside numeric mode");
         var devices = Enumerable.Range(0, 4).Where(i => Controller.Read((uint)i, out _)).ToArray();
         // ni hao = 6 4 4 8 6 in the original physical-keypad encoding.
         foreach (var region in new[] { 5, 3, 3, 1, 5 }) engine.InputRegion(region);

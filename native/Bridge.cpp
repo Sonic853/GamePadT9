@@ -14,6 +14,7 @@ static const GUID ProfileId = {0x79c457d1,0x690a,0x4f83,{0xa3,0xde,0xc9,0x5c,0x9
 static constexpr wchar_t ClassName[] = L"GamePadT9.TextService.v1";
 static constexpr wchar_t Description[] = L"GamePad T9 验证";
 static constexpr UINT ProbeMessage = WM_APP + 91, ReceiptMessage = WM_APP + 92, ErrorMessage = WM_APP + 93;
+static constexpr UINT CapabilitiesMessage = WM_APP + 94;
 static constexpr ULONG_PTR WireMagic = 0x39545047;
 static HINSTANCE instance;
 static std::atomic<long> objects{0};
@@ -24,10 +25,10 @@ class EditSession final : public ITfEditSession {
     Service* owner;
     ComPtr<ITfContext> context;
     HWND foreground;
-    uint32_t epoch, request;
+    uint32_t epoch, request, operation;
     std::wstring text;
 public:
-    EditSession(Service*, ITfContext*, HWND, uint32_t, uint32_t, std::wstring);
+    EditSession(Service*, ITfContext*, HWND, uint32_t, uint32_t, uint32_t, std::wstring);
     ~EditSession();
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** out) override {
         if (!out) return E_POINTER;
@@ -82,8 +83,9 @@ class Service final : public ITfTextInputProcessorEx, public ITfThreadMgrEventSi
         if (!packet || packet->dwData != WireMagic || !packet->lpData ||
             packet->cbData < 16 || packet->cbData > 16 + 2048) return 0;
         uint32_t header[4]; std::memcpy(header, packet->lpData, 16);
-        const auto [version, expectedEpoch, id, chars] = header;
-        if (version != 1 || id == 0 || chars == 0 || chars > 1024 ||
+        const auto [operation, expectedEpoch, id, chars] = header;
+        if ((operation != 1 && operation != 2) || id == 0 ||
+            (operation == 1 && (chars == 0 || chars > 1024)) || (operation == 2 && chars != 0) ||
             packet->cbData != 16 + chars * sizeof(wchar_t) || receiptState == 1) return 0;
         if (foreground != GetForegroundWindow() || Probe() != expectedEpoch) return 0;
         auto ctx = Focused(); if (!ctx) return 0;
@@ -92,7 +94,7 @@ class Service final : public ITfTextInputProcessorEx, public ITfThreadMgrEventSi
         if (text.find(L'\0') != std::wstring::npos) return 0;
         if (id == receiptId) return receiptState == 2 ? 1 : 0;
         receiptId = id; receiptState = 1; receiptError = S_OK;
-        auto edit = new EditSession(this, ctx.Get(), foreground, expectedEpoch, id, std::move(text));
+        auto edit = new EditSession(this, ctx.Get(), foreground, expectedEpoch, id, operation, std::move(text));
         HRESULT sessionResult = E_FAIL;
         // IPC is not a keystroke callback: allow TSF to schedule the document lock.
         auto hr = ctx->RequestEditSession(clientId, edit, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, &sessionResult);
@@ -110,6 +112,7 @@ class Service final : public ITfTextInputProcessorEx, public ITfThreadMgrEventSi
             if (msg == ProbeMessage) return self->Probe();
             if (msg == ReceiptMessage) return wp == self->receiptId ? self->receiptState : 0;
             if (msg == ErrorMessage) return self->receiptError;
+            if (msg == CapabilitiesMessage) return 3; // bit 0: insert, bit 1: backspace
             if (msg == WM_COPYDATA) {
                 try { return self->Accept(reinterpret_cast<HWND>(wp), reinterpret_cast<COPYDATASTRUCT*>(lp)); }
                 catch (...) { return 0; }
@@ -180,15 +183,59 @@ public:
     HRESULT STDMETHODCALLTYPE OnKillThreadFocus() override { Changed(); return S_OK; }
 };
 
-EditSession::EditSession(Service* svc, ITfContext* ctx, HWND fg, uint32_t token, uint32_t id, std::wstring value)
-    : owner(svc), context(ctx), foreground(fg), epoch(token), request(id), text(std::move(value)) { owner->AddRef(); }
+EditSession::EditSession(Service* svc, ITfContext* ctx, HWND fg, uint32_t token, uint32_t id, uint32_t op, std::wstring value)
+    : owner(svc), context(ctx), foreground(fg), epoch(token), request(id), operation(op), text(std::move(value)) { owner->AddRef(); }
 EditSession::~EditSession() { owner->Release(); }
+static HRESULT DeletePrevious(ITfContext* context, TfEditCookie cookie, ITfRange** result) {
+    TF_STATUS status{};
+    auto statusHr = context->GetStatus(&status);
+    if (FAILED(statusHr)) return statusHr;
+    // Some IMM compatibility controls expose only a transient composition store,
+    // not the surrounding document. Do not report a fake successful deletion.
+    if (status.dwStaticFlags & TF_SS_TRANSITORY) return E_NOTIMPL;
+    TF_SELECTION selection{}; ULONG count = 0;
+    auto hr = context->GetSelection(cookie, TF_DEFAULT_SELECTION, 1, &selection, &count);
+    if (FAILED(hr) || count != 1 || !selection.range) return FAILED(hr) ? hr : E_FAIL;
+    ComPtr<ITfRange> range; range.Attach(selection.range);
+    BOOL empty = FALSE;
+    hr = range->IsEmpty(cookie, &empty);
+    if (FAILED(hr)) return hr;
+    if (empty) {
+        LONG shifted = 0;
+        hr = range->ShiftStart(cookie, -1, &shifted, nullptr);
+        if (FAILED(hr)) return hr;
+        if (shifted == 0) { *result = range.Detach(); return S_OK; }
+        wchar_t last{}; ULONG fetched = 0;
+        hr = range->GetText(cookie, 0, &last, 1, &fetched);
+        if (FAILED(hr)) return hr;
+        // Keep UTF-16 surrogate pairs and Windows CRLF sequences intact.
+        if (fetched == 1 && ((last >= 0xdc00 && last <= 0xdfff) || last == L'\n')) {
+            ComPtr<ITfRange> previous; hr = range->Clone(&previous);
+            if (FAILED(hr)) return hr;
+            hr = previous->ShiftStart(cookie, -1, &shifted, nullptr);
+            if (FAILED(hr)) return hr;
+            if (shifted == -1) {
+                wchar_t pair[2]{};
+                hr = previous->GetText(cookie, 0, pair, 2, &fetched);
+                if (FAILED(hr)) return hr;
+                if (fetched == 2 && ((pair[0] >= 0xd800 && pair[0] <= 0xdbff && last >= 0xdc00 && last <= 0xdfff) || (pair[0] == L'\r' && last == L'\n')))
+                    range = previous;
+            }
+        }
+    }
+    hr = range->SetText(cookie, 0, L"", 0);
+    if (SUCCEEDED(hr)) *result = range.Detach();
+    return hr;
+}
 HRESULT EditSession::DoEditSession(TfEditCookie cookie) {
     HRESULT hr = E_ABORT;
     if (owner->Validate(context.Get(), foreground, epoch)) {
         ComPtr<ITfInsertAtSelection> insertion; ComPtr<ITfRange> range;
-        hr = context.As(&insertion);
-        if (SUCCEEDED(hr)) hr = insertion->InsertTextAtSelection(cookie, 0, text.data(), static_cast<LONG>(text.size()), &range);
+        if (operation == 2) hr = DeletePrevious(context.Get(), cookie, &range);
+        else {
+            hr = context.As(&insertion);
+            if (SUCCEEDED(hr)) hr = insertion->InsertTextAtSelection(cookie, 0, text.data(), static_cast<LONG>(text.size()), &range);
+        }
         // A successful insertion is never retried, even if moving the caret fails.
         if (SUCCEEDED(hr) && range && SUCCEEDED(range->Collapse(cookie, TF_ANCHOR_END))) {
             TF_SELECTION selection{range.Get(), {TF_AE_NONE, FALSE}};
