@@ -1,6 +1,6 @@
 # GamePad T9
 
-<img width="780" height="520" alt="PixPin_2026-09-08_16-34-28" src="https://github.com/user-attachments/assets/1daa2826-2e65-4894-bbc6-501a91aa988f" />
+<img width="780" height="520" alt="image" src="https://github.com/user-attachments/assets/4588694a-ac49-4ee1-9f1f-b43cd26c3a17" />
 
 Windows Xbox、PS4（DualShock 4）和 PS5（DualSense）手柄九键输入程序。启动 C# 主程序，在目标文本框同时按下两枚菜单键（Xbox：**View + Menu**；PS4：**Share + Options**；PS5：**Create + Options**）。默认直接输入模式记录原输入法并优先切换到 **GamePad T9**；该条目不可用时切换到 **小白 T9 输入法**。关闭手柄输入后恢复原输入法。也可按程序配置失焦输入或外部输入框。
 
