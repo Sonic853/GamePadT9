@@ -14,17 +14,17 @@ internal sealed class NotepadValidation : Form
     private readonly string root;
     private readonly RimeEngine engine;
     private readonly bool useTestEditor;
-    private readonly bool isolated, editorX86, standalone;
+    private readonly bool isolated, editorX86, standalone, proxy;
     private Process? ownedEditor;
     private InputSession? activeSession;
     private AutomationElement? scratchWindow;
     private string? scratchName;
     internal int Result { get; private set; } = 1;
     protected override bool ShowWithoutActivation => true;
-    public NotepadValidation(string root, RimeEngine engine, bool useTestEditor = false, bool isolated = false, bool editorX86 = false, bool standalone = false)
+    public NotepadValidation(string root, RimeEngine engine, bool useTestEditor = false, bool isolated = false, bool editorX86 = false, bool standalone = false, bool proxy = false)
     {
         this.root = root; this.engine = engine; this.useTestEditor = useTestEditor;
-        this.isolated = isolated; this.editorX86 = editorX86; this.standalone = standalone;
+        this.isolated = isolated; this.editorX86 = editorX86; this.standalone = standalone; this.proxy = proxy;
         ShowInTaskbar = false; Opacity = 0; Width = Height = 1;
         StartPosition = FormStartPosition.Manual; Location = new System.Drawing.Point(-2000, -2000);
         Shown += async (_, _) =>
@@ -43,13 +43,13 @@ internal sealed class NotepadValidation : Form
             }
         };
     }
-    private string ReportPath => Path.Combine(root, "artifacts", useTestEditor ? $"editor{(standalone ? "-standalone" : "")}{(editorX86 ? "-x86" : "")}{(isolated ? "-isolated" : "")}-verification.json" : "notepad-verification.json");
+    private string ReportPath => Path.Combine(root, "artifacts", useTestEditor ? $"editor{(proxy ? "-proxy" : standalone ? "-standalone" : "")}{(editorX86 ? "-x86" : "")}{(isolated ? "-isolated" : "")}-verification.json" : "notepad-verification.json");
     private async Task Run()
     {
         var name = "GamePadT9-TSF-" + DateTime.Now.ToString("yyyyMMdd-HHmmss");
         var file = Path.Combine(root, "artifacts", name + ".txt");
         File.WriteAllText(file, "", new UTF8Encoding(false));
-        var editorFolder = "test-editor" + (standalone ? "-standalone" : isolated ? "" : "-installed") + (editorX86 ? "-x86" : "");
+        var editorFolder = "test-editor" + (proxy ? "-proxy" : standalone ? "-standalone" : isolated ? "" : "-installed") + (editorX86 ? "-x86" : "");
         var start = new ProcessStartInfo(useTestEditor ? Path.Combine(root, "artifacts", editorFolder, "TestEditor.exe") : "notepad.exe") { UseShellExecute = true };
         start.ArgumentList.Add(file);
         if (isolated) start.ArgumentList.Add("--isolated");
@@ -118,9 +118,9 @@ internal sealed class NotepadValidation : Form
             using var metadata = JsonDocument.Parse(File.ReadAllText(file + ".component.json"));
             componentSha256 = metadata.RootElement.GetProperty("sha256").GetString();
             componentPath = metadata.RootElement.GetProperty("path").GetString();
-            var componentKind = standalone ? "standalone" : "xiaobai";
+            var componentKind = proxy ? "proxy" : standalone ? "standalone" : "xiaobai";
             var release = File.ReadAllText(Path.Combine(root, "artifacts", $"{componentKind}-{(editorX86 ? "x86" : "x64")}-path.txt")).Trim();
-            var expectedHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(release, standalone ? "GamePadT9.TextService.dll" : "weasel-gamepad.dll"))));
+            var expectedHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(release, proxy ? "GamePadT9.Xiaobai.dll" : standalone ? "GamePadT9.TextService.dll" : "weasel-gamepad.dll"))));
             if (componentSha256 != expectedHash) throw new Exception("目标编辑器加载的组件不是当前构建版本。");
             if (!isolated)
             {

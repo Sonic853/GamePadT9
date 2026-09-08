@@ -9,7 +9,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        var headless = args.Length > 0;
+        var headless = args.Length > 0 && !args.Contains("--settings") && !args.Contains("--programs");
         try
         {
             Console.OutputEncoding = new UTF8Encoding(false);
@@ -19,9 +19,26 @@ internal static class Program
             System.Windows.Forms.Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
             System.Windows.Forms.Application.EnableVisualStyles();
             var root = Settings.FindRoot();
+            if (args.Length == 4 && args[0] == "--manage-component")
+                return IntegrationInstaller.ElevatedEntry(root, Enum.Parse<ComponentAction>(args[1]), args[2], args[3]);
+            if (args.Length == 2 && args[0] == "--component-action")
+            {
+                var result = new IntegrationInstaller(root).RequestAsync(Enum.Parse<ComponentAction>(args[1])).GetAwaiter().GetResult();
+                Console.WriteLine(JsonSerializer.Serialize(result)); return result.Ok ? 0 : 1;
+            }
+            if (args.Contains("--verify-components")) return ComponentValidation.Run(root);
             using var instanceLock = new Mutex(true, "Local\\GamePadT9.Validation.Host", out var first);
             if (!first) throw new InvalidOperationException("GamePad T9 已在运行。请先关闭已有实例。");
-            using var engine = new RimeEngine(Settings.Load(root));
+            Settings runtime;
+            try { runtime = Settings.Load(root); }
+            catch (Exception ex) when (PortableRuntime.IsPortable(root) && !headless)
+            {
+                using var setup = new RuntimeSetupForm(root, ex.Message);
+                if (setup.ShowDialog() != DialogResult.OK || setup.Result == null) return 0;
+                runtime = setup.Result;
+            }
+            Directory.CreateDirectory(Path.Combine(root, "artifacts"));
+            using var engine = new RimeEngine(runtime);
             if (args.Contains("--self-test")) return Validation.Run(root, engine);
             if (args.Contains("--verify-controllers")) return ControllerValidation.Run(root, engine);
             if (args.Contains("--verify-focus"))
@@ -50,12 +67,13 @@ internal static class Program
             }
             if (args.Contains("--verify-notepad") || args.Contains("--verify-editor"))
             {
-                using var verification = new NotepadValidation(root, engine, args.Contains("--verify-editor"), args.Contains("--isolated"), args.Contains("--x86"), args.Contains("--standalone"));
+                using var verification = new NotepadValidation(root, engine, args.Contains("--verify-editor"), args.Contains("--isolated"), args.Contains("--x86"), args.Contains("--standalone"), args.Contains("--proxy"));
                 System.Windows.Forms.Application.Run(verification);
                 return verification.Result;
             }
             using var host = new GamePadApplication(engine, root);
-            if (args.Contains("--settings") || args.Contains("--programs"))
+            if (args.Contains("--settings") || args.Contains("--programs") ||
+                PortableRuntime.IsPortable(root) && new IntegrationInstaller(root).State() is { Standalone: false, Injected: false })
             {
                 EventHandler? show = null;
                 show = async (_, _) => { System.Windows.Forms.Application.Idle -= show; if (args.Contains("--programs")) await host.OpenProfiles(); else await host.OpenSettings(); };

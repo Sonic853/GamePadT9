@@ -1,8 +1,15 @@
 ﻿param(
-    [string]$InstallRoot = 'C:\Program Files\Rime\xiaobait9-2026.08.04',
+    [string]$InstallRoot,
     [string]$RimeUserRoot = (Join-Path $env:APPDATA 'Rime')
 )
 $ErrorActionPreference = 'Stop'
+if (!$InstallRoot) {
+    $registry = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry32)
+    $key = $registry.OpenSubKey('SOFTWARE\Rime\Weasel')
+    try { if ($key) { $InstallRoot = [string]$key.GetValue('WeaselRoot') } }
+    finally { if ($key) { $key.Dispose() }; $registry.Dispose() }
+    if (!$InstallRoot) { throw 'Cannot detect xiaobai. Specify -InstallRoot and optionally -RimeUserRoot.' }
+}
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $generatedPath = Join-Path $projectRoot 'data\installed'
 $prebuiltPath = Join-Path $generatedPath 'build'

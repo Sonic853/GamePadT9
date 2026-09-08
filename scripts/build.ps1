@@ -1,10 +1,11 @@
-param([switch]$Prepare, [switch]$SkipXiaobai, [switch]$Standalone, [switch]$SkipInputMethodControl)
+param([switch]$Prepare, [switch]$SkipXiaobai, [switch]$Standalone, [switch]$SkipInputMethodControl, [switch]$LegacyXiaobaiSource)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if ($Prepare) { & (Join-Path $PSScriptRoot 'prepare.ps1') }
 if (!$SkipXiaobai) {
-    & (Join-Path $PSScriptRoot 'build-xiaobai.ps1') -Architecture x64
-    & (Join-Path $PSScriptRoot 'build-xiaobai.ps1') -Architecture x86
+    $script = if ($LegacyXiaobaiSource) { 'build-xiaobai.ps1' } else { 'build-proxy.ps1' }
+    & (Join-Path $PSScriptRoot $script) -Architecture x64
+    & (Join-Path $PSScriptRoot $script) -Architecture x86
 }
 if ($Standalone) {
     & (Join-Path $PSScriptRoot 'build-standalone.ps1') -Architecture x64

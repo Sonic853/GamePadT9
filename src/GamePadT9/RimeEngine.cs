@@ -8,12 +8,16 @@ internal sealed record Settings(string InstallRoot, string Schema, string Prebui
     public static string FindRoot()
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir != null; dir = dir.Parent)
-            if (File.Exists(Path.Combine(dir.FullName, "gamepadt9.json"))) return dir.FullName;
+            if (File.Exists(Path.Combine(dir.FullName, "gamepadt9.json")) || PortableRuntime.IsPortable(dir.FullName)) return dir.FullName;
         throw new FileNotFoundException("找不到 gamepadt9.json，请先运行 scripts/prepare.ps1。");
     }
-    public static Settings Load(string root) => JsonSerializer.Deserialize<Settings>(
-        File.ReadAllText(Path.Combine(root, "gamepadt9.json")), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-        ?? throw new InvalidDataException("配置为空。");
+    public static Settings Load(string root)
+    {
+        if (PortableRuntime.IsPortable(root)) return PortableRuntime.Prepare(root);
+        var value = JsonSerializer.Deserialize<Settings>(File.ReadAllText(Path.Combine(root, "gamepadt9.json")), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new InvalidDataException("配置为空。");
+        return value with { InstallRoot = Path.GetFullPath(value.InstallRoot, root), PrebuiltPath = Path.GetFullPath(value.PrebuiltPath, root), UserPath = Path.GetFullPath(value.UserPath, root) };
+    }
 }
 
 internal sealed record Candidate(string Text, string Comment);
@@ -37,7 +41,7 @@ internal sealed class RimeEngine : IDisposable
         if (!File.Exists(dll)) throw new FileNotFoundException("找不到小白 T9 引擎。", dll);
         if (Environment.Is64BitProcess) throw new InvalidOperationException("已安装的小白 rime.dll 为 x86，请运行 win-x86 版本。");
         NativeLibrary.SetDllImportResolver(typeof(RimeEngine).Assembly,
-            (name, _, _) => name == "rime.dll" ? NativeLibrary.Load(dll) : 0);
+            (name, _, _) => name == "rime.dll" ? LoadEngine(dll) : 0);
         Directory.CreateDirectory(settings.UserPath);
         Directory.CreateDirectory(Path.Combine(settings.UserPath, "logs"));
         Directory.CreateDirectory(Path.Combine(settings.UserPath, "build"));
@@ -63,6 +67,13 @@ internal sealed class RimeEngine : IDisposable
         }
         catch { Dispose(); throw; }
     }
+    private static nint LoadEngine(string path)
+    {
+        var library = LoadLibraryEx(path, 0, 0x00000100 | 0x00001000); // DLL directory and default safe search locations.
+        if (library == 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "无法加载本机小白 T9 引擎或其依赖：" + path);
+        return library;
+    }
+    [DllImport("kernel32.dll", EntryPoint = "LoadLibraryExW", CharSet = CharSet.Unicode, SetLastError = true)] private static extern nint LoadLibraryEx(string path, nint file, uint flags);
     private nint Utf8(string value) { var p = Marshal.StringToCoTaskMemUTF8(value); strings.Add(p); return p; }
     public void InputRegion(int region)
     {

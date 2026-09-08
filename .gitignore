@@ -3,6 +3,9 @@
 artifacts/
 .cache/
 runtime/
+dist/
+data/local/
+runtime-location.json
 data/generated/
 data/installed/
 gamepadt9.json

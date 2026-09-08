@@ -143,7 +143,7 @@ internal sealed class InputMethodSwitcher(string root, bool simulateMissingStand
         if (!IsWow64Process2(target.Handle, out var processMachine, out var nativeMachine)) throw new Win32Exception(Marshal.GetLastWin32Error());
         var machine = processMachine == 0 ? nativeMachine : processMachine;
         var architecture = machine switch { 0x014c => "x86", 0x8664 => "x64", _ => throw new InvalidOperationException("当前目标程序架构尚不支持自动切换输入法。") };
-        var folder = File.ReadAllText(Path.Combine(root, "artifacts", $"input-method-{architecture}-path.txt")).Trim();
+        var folder = PortableRuntime.ComponentDirectory(root, "input-method", architecture);
         var info = new ProcessStartInfo(Path.Combine(folder, "InputMethodControl.exe"))
         {
             UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden,

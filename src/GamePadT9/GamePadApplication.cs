@@ -72,7 +72,7 @@ internal sealed class GamePadApplication : ApplicationContext
             {
                 value.Save(root); preferences = value;
                 controller.Reset(); controller.Configure(value); overlay.ApplySettings(value);
-            }, () => devices.Connected, () => devices.Error);
+            }, () => devices.Connected, () => devices.Error, new IntegrationInstaller(root));
             form.ProgramsRequested += async () => await OpenProfiles();
             settingsForm = form;
             form.FormClosed += (_, _) => { settingsForm = null; controller.Reset(); form.Dispose(); };

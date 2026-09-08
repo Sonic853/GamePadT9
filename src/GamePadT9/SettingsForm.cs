@@ -31,7 +31,7 @@ internal sealed class SettingsForm : Form
         Stick = (ControlSide)stick.SelectedIndex, Trigger = (ControlSide)trigger.SelectedIndex,
         PanelOpacity = (int)percentages[0].Value, GridOpacity = (int)percentages[1].Value, HighlightOpacity = (int)percentages[2].Value
     };
-    internal SettingsForm(UserSettings settings, Action<UserSettings> save, Func<IReadOnlyList<GamepadDevice>>? connected = null, Func<string?>? deviceError = null)
+    internal SettingsForm(UserSettings settings, Action<UserSettings> save, Func<IReadOnlyList<GamepadDevice>>? connected = null, Func<string?>? deviceError = null, IntegrationInstaller? integration = null)
     {
         this.connected = connected ?? (() => Array.Empty<GamepadDevice>());
         this.deviceError = deviceError ?? (() => null);
@@ -42,7 +42,12 @@ internal sealed class SettingsForm : Form
         Font = new Font("Microsoft YaHei UI", 10); BackColor = Color.FromArgb(20, 24, 29); ForeColor = Color.WhiteSmoke;
         var layout = new TableLayoutPanel { Dock = DockStyle.Top, Height = 730, Padding = new Padding(24), ColumnCount = 1, RowCount = 9 };
         foreach (var height in new[] { 40, 28, 180, 32, 30, 126, 148, 52, 46 }) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
-        Controls.Add(layout);
+        var tabs = new TabControl { Dock = DockStyle.Fill, Name = "SettingsTabs" };
+        var inputPage = new TabPage("输入设置") { BackColor = BackColor, AutoScroll = true };
+        var componentPage = new TabPage("输入法组件") { BackColor = BackColor, AutoScroll = true };
+        tabs.TabPages.Add(inputPage); tabs.TabPages.Add(componentPage); Controls.Add(tabs);
+        inputPage.Controls.Add(layout);
+        AddComponentControls(componentPage, integration);
         var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
         header.ColumnStyles.Add(new(SizeType.Percent, 100)); header.ColumnStyles.Add(new(SizeType.Absolute, 130));
         header.Controls.Add(Label("输入设置", 18, true), 0, 0);
@@ -95,6 +100,55 @@ internal sealed class SettingsForm : Form
         device.SelectedIndexChanged += (_, _) => { Preview(); UpdateDeviceStatus(); };
         SetDraft(settings);
         Load += (_, _) => { Height = Math.Min(Height, Screen.FromControl(this).WorkingArea.Height - 40); };
+    }
+    private void AddComponentControls(TabPage page, IntegrationInstaller? integration)
+    {
+        var layout = new TableLayoutPanel { Dock = DockStyle.Top, Height = 350, Padding = new(22), RowCount = 5, ColumnCount = 1 };
+        foreach (var height in new[] { 42, 78, 52, 52, 90 }) layout.RowStyles.Add(new(SizeType.Absolute, height));
+        page.Controls.Add(layout);
+        layout.Controls.Add(Label("输入法组件", 18, true), 0, 0);
+        var status = Label("正在检测安装状态…"); status.Name = "ComponentStatus";
+        var standalone = Button("注册 GamePad T9 输入法", "ToggleStandalone");
+        var xiaobai = Button("注入小白 T9 输入", "ToggleXiaobai");
+        layout.Controls.Add(status, 0, 1); layout.Controls.Add(standalone, 0, 2); layout.Controls.Add(xiaobai, 0, 3);
+        layout.Controls.Add(Label("两种方式只能启用一种。注入会保留本机原版小白 DLL；还原后继续使用原版。操作后请重新打开目标程序。", 9), 0, 4);
+        var operating = false;
+        ComponentState? state = null;
+        void RefreshState()
+        {
+            try
+            {
+                state = integration?.State();
+                status.Text = state?.Description ?? "组件管理不可用。";
+                standalone.Text = state?.Standalone == true ? "卸载 GamePad T9 输入法" : "注册 GamePad T9 输入法";
+                xiaobai.Text = state?.Injected == true ? "还原小白 T9 输入" : "注入小白 T9 输入";
+                standalone.Enabled = !operating && state != null && (state.Standalone || state.CanRegister);
+                xiaobai.Enabled = !operating && state != null && (state.Injected || state.CanInject);
+            }
+            catch (Exception ex) { status.Text = ex.Message; standalone.Enabled = xiaobai.Enabled = false; }
+        }
+        async Task Run(ComponentAction action)
+        {
+            if (operating || integration == null) return;
+            operating = true; RefreshState(); status.Text = "正在处理，请完成 Windows 管理员授权…";
+            try
+            {
+                var result = await integration.RequestAsync(action);
+                RefreshState(); status.Text = result.Message + "\n" + (state?.Description ?? "");
+            }
+            catch (Exception ex) { status.Text = "操作未完成：" + ex.Message; }
+            finally
+            {
+                operating = false;
+                standalone.Enabled = state != null && (state.Standalone || state.CanRegister);
+                xiaobai.Enabled = state != null && (state.Injected || state.CanInject);
+            }
+        }
+        standalone.Click += async (_, _) => await Run(state?.Standalone == true ? ComponentAction.UnregisterStandalone : ComponentAction.RegisterStandalone);
+        xiaobai.Click += async (_, _) => await Run(state?.Injected == true ? ComponentAction.RestoreXiaobai : ComponentAction.InjectXiaobai);
+        page.Enter += (_, _) => { if (!operating) RefreshState(); };
+        FormClosing += (_, e) => { if (operating) e.Cancel = true; };
+        RefreshState();
     }
     internal void SetDraft(UserSettings value)
     {

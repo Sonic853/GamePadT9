@@ -4,7 +4,15 @@
 
 Windows Xbox、PS4（DualShock 4）和 PS5（DualSense）手柄九键输入程序。启动 C# 主程序，在目标文本框同时按下两枚菜单键（Xbox：**View + Menu**；PS4：**Share + Options**；PS5：**Create + Options**）。默认直接输入模式记录原输入法并优先切换到 **GamePad T9**；该条目不可用时切换到 **小白 T9 输入法**。关闭手柄输入后恢复原输入法。也可按程序配置失焦输入或外部输入框。
 
-主程序、手柄控制、九宫格和候选面板使用 **C#**。联动方式在小白原有 **C++ TSF 组件**中加入手柄提交接口，沿用小白的输入法名称和标识。项目也提供“GamePad T9”独立输入法条目作为备用；两种方式均支持 x64 和 x86 目标程序。
+主程序、手柄控制、九宫格和候选面板使用 **C#**。小白联动扩展通过标准 **C++ TSF 接口**加载本机原版小白 DLL，沿用其名称和标识，不依赖固定版本的内部 IPC。项目也提供“GamePad T9”独立输入法条目；两种方式互斥，均支持 x64 和 x86 目标程序。
+
+## 复制到其他电脑
+
+运行 `scripts/package.ps1` 生成 `dist/GamePadT9-Portable-Windows-x64-NoRuntime-<时间>.zip`，包含主程序、SDL、SVG 图标及两种架构的输入组件，**不包含 .NET 运行时**。目标电脑需安装 [.NET 10 桌面运行时（Windows x86）](https://dotnet.microsoft.com/zh-cn/download/dotnet/10.0)，再解压运行 `Start.cmd`，无需安装 SDK 或开发工具。主程序为 32 位，仅安装 x64 运行时不满足要求。便携包自动检测本机的小白安装目录，不带开发电脑的绝对路径、引擎、词库或注册表备份；未识别时可选择目录。
+
+从 **设置 → 输入法组件** 点击“注册/卸载 GamePad T9 输入法”或“注入/还原小白 T9 输入”。已有一种方式时另一种的安装按钮禁用；先还原/卸载才能切换。详细要求、目录和使用方法见 [便携版说明](PORTABLE.md)。版本兼容取决于标准 TSF 接口、x86 Rime API 和 `xiaobai_simp` 方案；不承诺所有未来版本。
+
+发行包的主程序使用不含运行时的单文件发布，`GamePadT9.dll`、`Svg.dll`、`ExCSS.dll`、`SDL3.dll`、`.deps.json` 和 `.runtimeconfig.json` 均整合到 `GamePadT9.exe`。SDL3 启动时自动释放到用户临时缓存；`components` 中供 Windows 和目标进程加载的输入法组件保持独立，分发时仍需复制整个文件夹。开发构建保留独立 DLL，`scripts/package.ps1` 负责合并发行产物。[.NET 单文件发布说明](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview)
 
 ## 开始使用
 
@@ -80,7 +88,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Editor -St
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Editor -Standalone -Architecture x86
 ```
 
-安装备用条目需要正常 UAC 授权，不会自动切换整个桌面的输入法。仅移除备用条目时执行以下命令，小白联动方式继续保留：
+安装备用条目需要正常 UAC 授权；已注入小白时须先还原，才能注册独立条目。移除独立条目时执行：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/register-standalone.ps1 -Unregister
@@ -197,11 +205,11 @@ Y 切换到数字模式会暂存九键编码，在同一文本框返回九键模
 
 ## 安装方式和恢复
 
-安装脚本只更改小白现有 COM 类 `{A3F4CDED-B1E9-41EE-9CA6-7B4D0DE6CB0A}` 在 32 位和 64 位注册表视图中的 `InprocServer32` 路径，指向 `C:\Program Files\GamePadT9\components\<架构-哈希>\weasel-gamepad.dll`。
+设置窗口和安装脚本共用 C# 组件管理器。小白注入只更改现有 COM 类 `{A3F4CDED-B1E9-41EE-9CA6-7B4D0DE6CB0A}` 在 32 位和 64 位视图中的 `InprocServer32` 路径，指向 `Program Files\GamePadT9\components\<架构-哈希>\GamePadT9.Xiaobai.dll`。该扩展按本机备份路径加载原 DLL，保留原服务端和实体键盘输入。
 
 小白原输入法配置文件 `{3D02CAB6-2B8E-4781-BA20-1C9267529467}`、Windows 键盘布局及原版 DLL 文件保留。原始组件路径和校验值备份在 `C:\Program Files\GamePadT9\components\original-registration.json`。
 
-组件安装需要正常的 Windows UAC 授权。脚本在修改路径前要求两种架构的当前构建均通过隔离输入测试，并按 SHA256 核对测试版本；安装失败会回退本次路径修改。
+组件安装需要当前用户正常的 Windows UAC 授权。管理器先核对架构与发行包 SHA256，暂存两种架构的组件、保存本机原注册信息，再修改注册项；发生失败会回滚本次变更。还原时不会覆盖小白更新程序已设置的新路径。开发构建应先通过下方隔离测试。
 
 关闭 GamePad T9 后，可以恢复小白原组件：
 
@@ -213,7 +221,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-xiaobai.ps1 
 
 ## 构建与复测
 
-需要 .NET 10 SDK、x86 .NET 10 Windows Desktop Runtime、Visual C++ x64/x86 工具链、ATL 和 Windows SDK。64 位测试编辑器还需要 x64 .NET 10 Windows Desktop Runtime。同级 `../xiaobai-t9` 源码应存在，原版小白输入法应已完成一次方案部署。
+需要 .NET 10 SDK、x86 .NET 10 Windows Desktop Runtime、Visual C++ x64/x86 工具链和 Windows SDK。64 位测试编辑器还需要 x64 .NET 10 Windows Desktop Runtime。原版小白输入法应已完成一次方案部署。只有旧源码联动方式才需要 ATL、Boost 和同级 `../xiaobai-t9` 源码。
 
 先从托盘退出 GamePad T9，再在本项目目录执行：
 
@@ -222,24 +230,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-xiaobai.ps1 
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare.ps1
 
 # 构建 C# 主程序及两种架构的小白联动组件。
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Standalone
 
 # 基础检查及隔离测试：尚不更改系统组件路径。
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Editor
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Editor -Architecture x86
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Proxy
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Proxy -Architecture x86
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Components
 
-# 安装通过上述测试的版本，再验证实际安装路径下的组件。
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-xiaobai.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Editor -Installed
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Editor -Installed -Architecture x86
+# 制作不含 .NET 运行时的便携包；目标电脑需要 .NET 10 桌面运行时 x86。
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1
 ```
 
-`prepare.ps1` 默认引用 `C:/Program Files/Rime/xiaobait9-2026.08.04`，可指定 `-InstallRoot` 和 `-RimeUserRoot`。它复制已部署方案与 Lua 支持文件到 `data/installed`，生成本地 `gamepadt9.json`，不复制原用户学习数据库。手柄学习数据与日志单独保存在 `artifacts/rime-user`。
+`prepare.ps1` 默认读取注册表中的小白安装目录，可指定 `-InstallRoot` 和 `-RimeUserRoot`。它为开发环境复制已部署方案与 Lua 支持文件到 `data/installed`，生成本地 `gamepadt9.json`，不复制原用户学习数据库。便携版无需运行该脚本，启动时会自动准备本机数据到 `data/local`。
 
 `build-xiaobai.ps1` 从同级仓库复制 WeaselTSF、WeaselIPC、WeaselUI 等源码到 `artifacts/xiaobai-source-<架构>` 后应用补丁，不修改原仓库。首次构建自动下载并校验官方 Boost 1.84.0 压缩包；这个版本与已安装小白服务端的序列化格式 20 匹配。构建使用 C++17、静态运行库，不要求把原组件转成 C#。
 
-构建产物使用带哈希的目录，当前路径记录在 `artifacts/xiaobai-x64-path.txt` 和 `artifacts/xiaobai-x86-path.txt`。`build.ps1` 同时构建 x64 / x86 输入法切换辅助组件，路径记录在 `artifacts/input-method-<架构>-path.txt`；这些辅助组件无需注册。只改 C# 时可以运行 `scripts/build.ps1 -SkipXiaobai -SkipInputMethodControl`。
+默认 `build.ps1` 构建标准 TSF 扩展，产物位置记录在 `artifacts/proxy-<架构>-path.txt`；旧 `build-xiaobai.ps1` 仅作为历史源码方案保留，可用 `-LegacyXiaobaiSource` 构建，不随便携包分发。输入法切换辅助组件位置记录在 `artifacts/input-method-<架构>-path.txt`，无需注册。只改 C# 时可运行 `scripts/build.ps1 -SkipXiaobai -SkipInputMethodControl`。
 
 项目包含固定版本 SDL 3.4.16 的 x86 DLL，构建时自动复制到主程序旁边。Steam 图标按 `SteamGlyphs.props` 只嵌入当前界面使用的 34 个 SVG，由 SVG.NET 3.4.8 绘制；首次构建需要从 NuGet 还原 `Svg` 及其 ExCSS 依赖。升级本次手柄和图标功能只需重新构建 C# 主程序，无需重新注册输入法组件。
 
@@ -294,6 +301,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace 
 
 ## 验证结果
 
+2026-09-09 单文件主程序：`GamePadT9.exe` 整合 SVG、ExCSS、SDL3 和启动配置，压缩包仍约 2.16 MiB，不包含 .NET 运行时。解压搬迁后，18 项基础检查、91 项手柄与 SVG 检查、16 项组件检查通过；启动追踪确认使用本机 x86 桌面运行时，缓存中仅释放原版 SDL3，10 个输入组件哈希一致。见 [单文件发行验证报告](artifacts/portable-single-file-verification.json)。
+
+2026-09-09 无运行时便携版：压缩包约 2.16 MiB，使用系统已安装的 .NET 10 桌面运行时 x86。解压后从临时工作目录启动，16 项组件检查通过；已核对运行时依赖声明、10 个原生组件哈希及包内无 .NET 运行时文件。见 [无运行时发行验证报告](artifacts/portable-no-runtime-verification.json)。
+
+2026-09-09 便携版：自包含发行包搬到另一目录、从临时工作目录启动且不使用系统 .NET 路径，18 项基础检查通过。x64 / x86 标准 TSF 扩展隔离输入检查、16 项组件互斥与失败回滚检查、45 项设置检查及 109 项焦点回归通过。组件管理测试使用临时注册表实现和文件目录，本轮未修改本机实际输入法注册；尚未逐个验证其他小白版本。发行文件和校验记录见 [便携版验证报告](artifacts/portable-verification.json)。
+
 2026-09-09：Release 构建零警告、零错误；x64 / x86 程序配置与焦点专项检查、91 项手柄检查、45 项设置与 SVG 检查、18 项基础检查和记事本回归均通过。新模式验证使用自建 WPF 编辑器，尚未在具体游戏中验证失焦后的手柄响应。专项报告：[x64](artifacts/focus-verification.json)、[x86](artifacts/focus-x86-verification.json)。
 
 2026-09-08，Release 构建、18 项基础检查、91 项多手柄检查、45 项设置与 SVG 检查通过；切换 SVG 后重新通过后两项检查。新版记事本此前通过完整输入及恢复检查，使用小白回退入口。本次 SDL 读取层检测到 Xbox 360 Controller；PS4 / PS5 使用进程内虚拟设备验证，尚未连接真机复测。两种架构的输入法隔离测试、实际安装测试已有通过记录：
@@ -335,7 +348,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace 
 - 当前不屏蔽游戏收到的手柄操作。独占全屏游戏、管理员程序及其他特殊编辑控件需要分别验证，不能保证所有程序兼容。
 - 自动切换需要目标允许消息钩子和 TSF 调用；权限更高或阻止外部钩子的程序可能拒绝操作。强制结束进程或系统异常时不能保证执行恢复。
 - 提交失败或回执超时不自动重发；面板会提示检查结果，按 B 清除后继续。
-- 更新小白安装包后，其安装程序可能恢复自身组件路径；需按匹配的新版本重新构建和验证联动组件。
+- 更新小白安装包后，其安装程序可能恢复自身组件路径；新扩展会保留新路径，可在设置中再次注入。原版标准接口或引擎 ABI 变化时仍需要适配并验证。
 
 首次集成时发现 Boost 版本与原服务端不匹配，曾导致加载该版本的部分程序异常退出。已恢复原组件后修复版本匹配和异常边界，并改为先做进程隔离验证；上表结果来自修复后的组件。
 
