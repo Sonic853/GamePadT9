@@ -1,0 +1,46 @@
+<local:PanelWindow x:Class="GamePadT9.FocusInputForm" x:ClassModifier="internal"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:GamePadT9" xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="GamePad T9 · 外部输入框" x:Name="FocusedInputWindow"
+    Width="780" Height="112" MinWidth="0" MinHeight="0" ResizeMode="NoResize" WindowStyle="None"
+    WindowBackdropType="None" Background="#202625" WindowStartupLocation="Manual" Topmost="True" ShowInTaskbar="False">
+    <Grid Margin="10,8">
+        <Grid.RowDefinitions><RowDefinition Height="34"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <ui:TextBox x:Name="Editor" AutomationProperties.AutomationId="ExternalInputText" AutomationProperties.Name="外部输入栏"
+            PlaceholderText="选词后文字显示在这里，也可直接编辑…" ClearButtonEnabled="False"
+            AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Hidden"
+            Height="34" MinHeight="0" MaxLength="32767" Padding="8,3" FontSize="16" VerticalContentAlignment="Center"
+            Background="#20292C" BorderBrush="#455451" SelectionBrush="#47936D"/>
+        <Grid Grid.Row="1" Height="18" Margin="0,5,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="TargetProgram" MaxWidth="160" Margin="0,0,12,0" Foreground="{StaticResource PanelMuted}"
+                FontSize="11" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+            <TextBlock x:Name="DestinationLabel" Grid.Column="1" Margin="0,0,12,0" Foreground="{StaticResource PanelAccent}"
+                FontSize="11" VerticalAlignment="Center"/>
+            <TextBlock x:Name="Status" Grid.Column="2" Foreground="{StaticResource PanelMuted}" FontSize="11"
+                TextTrimming="CharacterEllipsis" VerticalAlignment="Center" AutomationProperties.AutomationId="FocusInputStatus"/>
+            <TextBlock x:Name="CharacterCount" Grid.Column="3" Foreground="{StaticResource PanelMuted}" FontSize="11"
+                Margin="12,0,0,0" VerticalAlignment="Center"/>
+        </Grid>
+        <DockPanel Grid.Row="2" Margin="0,6,0,0">
+            <ui:Button x:Name="CompleteButton" DockPanel.Dock="Right" Style="{StaticResource PrimaryAction}" Padding="8,2" Height="30" MinHeight="0"
+                AutomationProperties.AutomationId="CompleteExternalInput" Click="Complete">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="长按" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <ContentControl x:Name="CompletionGlyph" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="CompletionLabel" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                </StackPanel>
+            </ui:Button>
+            <StackPanel Orientation="Horizontal">
+                <ui:Button x:Name="CopyButton" Content="复制" Icon="{ui:SymbolIcon Copy24}" Appearance="Transparent" Padding="6,2" Height="30" MinHeight="0" FontSize="12"
+                    AutomationProperties.Name="复制保留的文字" ToolTip="复制草稿，继续编辑" Click="Copy"/>
+                <ui:Button x:Name="ClearButton" Content="清空" Icon="{ui:SymbolIcon Delete24}" Appearance="Transparent" Padding="6,2" Height="30" MinHeight="0" FontSize="12" Margin="4,0,0,0"
+                    AutomationProperties.AutomationId="ClearExternalDraft" AutomationProperties.Name="清空草稿" Click="Clear"/>
+                <ui:Button x:Name="CancelButton" Content="保留并关闭" Appearance="Transparent" Padding="8,2" Height="30" MinHeight="0" FontSize="12" Margin="4,0,0,0"
+                    AutomationProperties.AutomationId="CancelExternalInput" ToolTip="关闭输入，保留当前草稿" Click="Cancel"/>
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</local:PanelWindow>

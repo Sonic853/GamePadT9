@@ -18,7 +18,7 @@ internal sealed class FocusedInputSession : IDisposable
     private readonly TsfClient tsf = new();
     private readonly SymbolMenu symbols = new();
     private readonly FocusInputForm form;
-    private readonly Form focusSurface;
+    private readonly Form? overlay;
     private CancellationTokenSource? operation;
     private bool closing, uncertain, recoveryRequired, disposed, shuttingDown;
     public bool Enabled { get; private set; }
@@ -28,7 +28,8 @@ internal sealed class FocusedInputSession : IDisposable
     public string Message { get; private set; } = "";
     public string NumberHistory { get; private set; } = "";
     internal bool External => behavior.Mode == InputFocusMode.External;
-    internal bool OwnsFocus => focusSurface.IsHandleCreated && TsfClient.GetForegroundWindow() == focusSurface.Handle;
+    private nint FocusHandle => External ? form.ExistingHandle : overlay is { IsHandleCreated: true } ? overlay.Handle : 0;
+    internal bool OwnsFocus => FocusHandle != 0 && TsfClient.GetForegroundWindow() == FocusHandle;
     internal bool HasRetainedText => RecoveryText().Length > 0;
     internal FocusInputForm Form => form;
     internal string Draft => form.Editor.Text;
@@ -44,7 +45,7 @@ internal sealed class FocusedInputSession : IDisposable
         catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException or COMException) { }
         if (!External && overlay == null) throw new InvalidOperationException("缺少九宫格输入面板。");
         form = new FocusInputForm(External, behavior.Completion, System.IO.Path.GetFileName(ProgramProfiles.Executable(original)) ?? "目标程序");
-        focusSurface = External ? form : overlay!;
+        this.overlay = overlay;
         form.Editor.Text = draft; form.Editor.SelectionStart = draft.Length;
         if (!External && draft.Length > 0) { pendingText = draft; recoveryRequired = true; }
         form.Editor.TextChanged += (_, _) => { if (External) saveDraft(Draft); };
@@ -92,7 +93,7 @@ internal sealed class FocusedInputSession : IDisposable
                 Enabled = true; Notify();
                 if (External) { form.PlaceAbove(overlayBounds()); form.Show(); }
                 var focused = await FocusPanelAsync();
-                Message = focused ? (External ? "在输入栏编辑，长按 A 完成输入" : "选词后自动切回目标填入，再返回此面板") : "未能获得焦点，请点击输入面板后继续";
+                Message = focused ? (External ? "选词后可继续编辑，长按确认键完成输入" : "选词后自动切回目标填入，再返回此面板") : "未能获得焦点，请点击输入面板后继续";
             }
             else await CloseCoreAsync();
         }
@@ -121,9 +122,7 @@ internal sealed class FocusedInputSession : IDisposable
     }
     private void Notify()
     {
-        form.Status.Text = Message; form.Editor.ReadOnly = !External || Busy || recoveryRequired;
-        form.CompleteButton.Enabled = Enabled && !Busy && !recoveryRequired;
-        form.ClearButton.Enabled = !Busy;
+        form.UpdateState(Message, External && !Busy && !recoveryRequired, Enabled && !Busy && !recoveryRequired, Busy);
         if (!External) form.Editor.Text = RecoveryText();
         Changed?.Invoke();
     }
@@ -214,7 +213,7 @@ internal sealed class FocusedInputSession : IDisposable
             Notify();
             if (engine.PendingCommit.Length > 0)
             { await CommitAsync(engine.PendingCommit, token); engine.AcknowledgeCommit(); }
-            Message = External ? "短按 A 选词，长按 A 完成输入" : "选词后自动填入目标";
+            Message = External ? "短按确认键选词，长按完成输入" : "选词后自动填入目标";
         }
         catch (OperationCanceledException) { Message = "操作已取消，未完成的文字保留"; }
         catch (Exception ex)
@@ -235,7 +234,17 @@ internal sealed class FocusedInputSession : IDisposable
         if (engine.PendingCommit.Length == 0) return;
         Insert(engine.PendingCommit); engine.AcknowledgeCommit();
     }
-    private void Insert(string text) { form.Editor.SelectedText = text; form.Editor.ScrollToCaret(); }
+    private void Insert(string text)
+    {
+        var editor = form.Editor;
+        var start = editor.SelectionStart;
+        editor.SelectedText = text;
+        // WPF retains the inserted selection; collapse it so subsequent gamepad
+        // commits append at the caret instead of replacing the previous word.
+        editor.Select(start + text.Length, 0);
+        var line = editor.GetLineIndexFromCharacterIndex(editor.CaretIndex);
+        if (line >= 0) editor.ScrollToLine(line);
+    }
     private void DeleteDraft()
     {
         var editor = form.Editor;
@@ -326,14 +335,19 @@ internal sealed class FocusedInputSession : IDisposable
     }
     private async Task<bool> FocusPanelAsync()
     {
-        if (!focusSurface.Visible) focusSurface.Show();
-        focusSurface.Activate(); SetForegroundWindow(focusSurface.Handle);
+        if (External)
+        {
+            if (!form.IsVisible) form.Show();
+            form.PlaceAbove(overlayBounds()); form.Activate();
+        }
+        else { if (!overlay!.Visible) overlay.Show(); overlay.Activate(); }
+        SetForegroundWindow(FocusHandle);
         if (!OwnsFocus && InputMethodSwitcher.Foreground() == original)
         {
             try
             {
-                var granted = await inputMethods.RunAsync(original, "grant-focus", focusDestination: focusSurface.Handle);
-                if (granted.Ok && InputMethodSwitcher.Foreground() == original) SetForegroundWindow(focusSurface.Handle);
+                var granted = await inputMethods.RunAsync(original, "grant-focus", focusDestination: FocusHandle);
+                if (granted.Ok && InputMethodSwitcher.Foreground() == original) SetForegroundWindow(FocusHandle);
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception) { Message = ex.Message; }
         }
@@ -394,62 +408,4 @@ internal sealed class FocusedInputSession : IDisposable
         operation?.Cancel(); form.AllowClose = true; form.Dispose();
     }
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint window);
-}
-
-internal sealed class FocusInputForm : Form
-{
-    internal TextBox Editor { get; } = new() { Name = "ExternalInputText", Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, MaxLength = 32767 };
-    internal Label Status { get; } = new() { Name = "FocusInputStatus", Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
-    internal CompletionGlyphButton CompleteButton { get; } = new() { Name = "CompleteExternalInput", Dock = DockStyle.Fill };
-    internal Button ClearButton { get; } = new() { Name = "ClearExternalDraft", Text = "清空草稿", Dock = DockStyle.Fill };
-    internal bool AllowClose;
-    internal event Action? CompleteRequested, CancelRequested, CopyRequested, ClearRequested;
-    internal FocusInputForm(bool external, CompletionDestination destination, string program)
-    {
-        Text = $"GamePad T9 · {(external ? "外部输入框" : "游戏失去焦点")} · {program}";
-        Name = "FocusedInputWindow"; TopMost = true; ShowInTaskbar = false;
-        FormBorderStyle = FormBorderStyle.FixedToolWindow; StartPosition = FormStartPosition.Manual;
-        AutoScaleDimensions = new(96, 96); AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new(780, 175); Font = new("Microsoft YaHei UI", 10);
-        BackColor = Color.FromArgb(20, 24, 29); ForeColor = Color.WhiteSmoke;
-        Editor.BackColor = Color.FromArgb(33, 39, 46); Editor.ForeColor = Color.WhiteSmoke; Editor.ReadOnly = !external;
-        Editor.AccessibleName = external ? "外部输入栏" : "待提交文字（只读）";
-        Editor.PlaceholderText = external ? "选词后文字显示在这里，可直接编辑" : "确认候选后自动填入原程序；提交失败的文字会保留在这里";
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(10), ColumnCount = 1, RowCount = 3 };
-        layout.RowStyles.Add(new(SizeType.Percent, 100)); layout.RowStyles.Add(new(SizeType.Absolute, 30)); layout.RowStyles.Add(new(SizeType.Absolute, 38)); Controls.Add(layout);
-        layout.Controls.Add(Editor, 0, 0); layout.Controls.Add(Status, 0, 1);
-        var buttons = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4 };
-        foreach (var width in new[] { 35, 25, 15, 25 }) buttons.ColumnStyles.Add(new(SizeType.Percent, width));
-        CompleteButton.Prompt = destination == CompletionDestination.Clipboard ? "完成并复制（长按 [A]）" : "完成并填入（长按 [A]）";
-        CompleteButton.AccessibleName = destination == CompletionDestination.Clipboard ? "完成并复制，长按确认键" : "完成并填入，长按确认键"; CompleteButton.Visible = external;
-        var copy = new Button { Text = "复制保留的文字", Name = "CopyDraft", Dock = DockStyle.Fill };
-        var cancel = new Button { Text = "关闭并保留草稿", Name = "CancelExternalInput", Dock = DockStyle.Fill };
-        foreach (var button in new Button[] { CompleteButton, copy, ClearButton, cancel }) { button.FlatStyle = FlatStyle.Flat; button.BackColor = Color.FromArgb(33, 39, 46); }
-        buttons.Controls.Add(CompleteButton, 0, 0); buttons.Controls.Add(copy, 1, 0); buttons.Controls.Add(ClearButton, 2, 0); buttons.Controls.Add(cancel, 3, 0); layout.Controls.Add(buttons, 0, 2);
-        CompleteButton.Click += (_, _) => CompleteRequested?.Invoke(); cancel.Click += (_, _) => CancelRequested?.Invoke(); copy.Click += (_, _) => CopyRequested?.Invoke();
-        ClearButton.Click += (_, _) => ClearRequested?.Invoke();
-        FormClosing += (_, e) => { if (!AllowClose) { e.Cancel = true; CancelRequested?.Invoke(); } };
-    }
-    internal void UseFamily(GamepadFamily family) { CompleteButton.Family = family; CompleteButton.Invalidate(); }
-    internal void PlaceAbove(Rectangle overlay)
-    {
-        var area = Screen.FromRectangle(overlay).WorkingArea;
-        Width = Math.Min(overlay.Width, area.Width - 30);
-        Location = new(Math.Clamp(overlay.Left, area.Left, area.Right - Width), Math.Max(area.Top, overlay.Top - Height - 4));
-    }
-    protected override void OnShown(EventArgs e) { base.OnShown(e); ShowWindow(Handle, 1); }
-    [DllImport("user32.dll")] private static extern bool ShowWindow(nint window, int command);
-}
-
-internal sealed class CompletionGlyphButton : Button
-{
-    private readonly ButtonGlyphs glyphs = new();
-    internal string Prompt = "";
-    internal GamepadFamily Family;
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        base.OnPaint(e);
-        glyphs.Draw(e.Graphics, Prompt, Family, Font, Enabled ? ForeColor : Color.Gray, new(5, 2, Width - 10, Height - 4), 23 * DeviceDpi / 96f, true);
-    }
-    protected override void Dispose(bool disposing) { if (disposing) glyphs.Dispose(); base.Dispose(disposing); }
 }

@@ -101,7 +101,7 @@ internal static class ControllerValidation
                 Check(UserSettings.Load(directory, out _) == preferences, "Selected device and existing opacity settings survive save/reload");
                 using var form = new SettingsForm(preferences, value => value.Save(directory), () => devices.Connected);
                 form.Show(); Application.DoEvents();
-                var picker = (ComboBox)form.Controls.Find("ControllerSelector", true).Single();
+                var picker = form.Control<System.Windows.Controls.ComboBox>("ControllerSelector");
                 Check(picker.Items.Count == devices.Connected.Count + 1 && form.Draft.ControllerId == savedId, "Settings lists connected controllers plus automatic selection and restores the saved choice");
                 reconnected.Disconnect(); devices.Poll(savedId, out _, true); form.RefreshDevices();
                 Check(picker.Text.Contains("未连接") && form.Draft.ControllerId == savedId, "Hot unplug updates the picker without losing its selected device");

@@ -1,4 +1,5 @@
-using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -23,11 +24,22 @@ internal sealed record ProgramProfiles
     public InputBehavior Global { get; init; } = new();
     public List<ProgramProfile> Programs { get; init; } = [];
     internal InputBehavior Resolve(string? path) => Programs.FirstOrDefault(p => string.Equals(p.Path, path, StringComparison.OrdinalIgnoreCase))?.Behavior ?? Global;
-    internal static string? Executable(InputWindow window)
+    internal static string? Executable(InputWindow window) => Executable(window.Process);
+    internal static string? Executable(uint processId)
     {
-        try { using var process = Process.GetProcessById((int)window.Process); return process.MainModule?.FileName; }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { return null; }
+        // The host is x86; MainModule cannot inspect a 64-bit target.
+        var process = OpenProcess(0x1000, false, processId);
+        if (process == 0) return null;
+        try
+        {
+            var path = new StringBuilder(32768); var size = (uint)path.Capacity;
+            return QueryFullProcessImageName(process, 0, path, ref size) ? path.ToString() : null;
+        }
+        finally { CloseHandle(process); }
     }
+    [DllImport("kernel32.dll")] private static extern nint OpenProcess(uint access, bool inherit, uint processId);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern bool QueryFullProcessImageName(nint process, uint flags, StringBuilder name, ref uint size);
+    [DllImport("kernel32.dll")] private static extern bool CloseHandle(nint handle);
     internal void Validate()
     {
         if (Global == null || Programs == null) throw new InvalidDataException("程序配置为空。");

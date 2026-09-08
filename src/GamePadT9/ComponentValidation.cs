@@ -56,9 +56,9 @@ internal static class ComponentValidation
             Rejected(() => manager.Apply(ComponentAction.RegisterStandalone), "Backend rejects conflicting standalone registration independently of the UI");
             using (var settings = new SettingsForm(new(), _ => { }, integration: manager))
             {
-                var standalone = (Button)settings.Controls.Find("ToggleStandalone", true).Single();
-                var xiaobai = (Button)settings.Controls.Find("ToggleXiaobai", true).Single();
-                Check(!standalone.Enabled && xiaobai.Enabled && xiaobai.Text == "还原小白 T9 输入", "Settings offers restore and disables registration while xiaobai is injected");
+                var standalone = settings.Control<Wpf.Ui.Controls.Button>("ToggleStandalone");
+                var xiaobai = settings.Control<Wpf.Ui.Controls.Button>("ToggleXiaobai");
+                Check(!standalone.IsEnabled && xiaobai.IsEnabled && (string)xiaobai.Content == "还原小白 T9 输入", "Settings offers restore and disables registration while xiaobai is injected");
             }
             registry.FailWrite = "x86";
             try { manager.Apply(ComponentAction.RestoreXiaobai); throw new Exception("Missing restore failure"); } catch (IOException) { }
@@ -78,8 +78,8 @@ internal static class ComponentValidation
             Rejected(() => manager.Apply(ComponentAction.InjectXiaobai), "Backend rejects conflicting xiaobai injection independently of the UI");
             using (var settings = new SettingsForm(new(), _ => { }, integration: manager))
             {
-                Check(((Button)settings.Controls.Find("ToggleStandalone", true).Single()).Text == "卸载 GamePad T9 输入法" &&
-                    !((Button)settings.Controls.Find("ToggleXiaobai", true).Single()).Enabled, "Settings offers uninstall and disables injection while standalone is registered");
+                Check((string)settings.Control<Wpf.Ui.Controls.Button>("ToggleStandalone").Content == "卸载 GamePad T9 输入法" &&
+                    !settings.Control<Wpf.Ui.Controls.Button>("ToggleXiaobai").IsEnabled, "Settings offers uninstall and disables injection while standalone is registered");
             }
             manager.Apply(ComponentAction.UnregisterStandalone);
             Check(!manager.State().Standalone && !manager.State().Injected, "Uninstall returns to an unmodified, mutually exclusive state");

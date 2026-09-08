@@ -1,0 +1,52 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <SolidColorBrush x:Key="PanelAccent" Color="#76E8B0" />
+    <SolidColorBrush x:Key="PanelMuted" Color="#AAB6B2" />
+    <SolidColorBrush x:Key="PanelCard" Color="#272D30" />
+    <Style x:Key="PageHeading" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="27" /><Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Margin" Value="0,0,0,8" />
+    </Style>
+    <Style x:Key="Description" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource PanelMuted}" />
+        <Setter Property="TextWrapping" Value="Wrap" /><Setter Property="LineHeight" Value="22" />
+    </Style>
+    <Style x:Key="SectionHeading" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="16" /><Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Margin" Value="0,0,0,8" />
+    </Style>
+    <Style x:Key="SettingsCard" TargetType="ui:Card" BasedOn="{StaticResource {x:Type ui:Card}}">
+        <Setter Property="Padding" Value="22" /><Setter Property="Margin" Value="0,0,0,14" />
+        <Setter Property="Background" Value="{StaticResource PanelCard}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style x:Key="PrimaryAction" TargetType="ui:Button" BasedOn="{StaticResource {x:Type ui:Button}}">
+        <Setter Property="Appearance" Value="Primary" />
+        <Setter Property="Background" Value="{StaticResource PanelAccent}" />
+        <Setter Property="Foreground" Value="#122A20" /><Setter Property="MinWidth" Value="104" />
+    </Style>
+    <Style x:Key="SideItem" TargetType="ListBoxItem">
+        <Setter Property="Padding" Value="14,12" /><Setter Property="Margin" Value="0,3" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Foreground" Value="#CDD5D2" />
+        <Setter Property="Template">
+            <Setter.Value><ControlTemplate TargetType="ListBoxItem">
+                <Border x:Name="Surface" CornerRadius="7" Padding="{TemplateBinding Padding}" Background="Transparent">
+                    <ContentPresenter />
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#303938" /></Trigger>
+                    <Trigger Property="IsSelected" Value="True"><Setter TargetName="Surface" Property="Background" Value="#244B3C" /><Setter Property="Foreground" Value="{StaticResource PanelAccent}" /></Trigger>
+                    <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource PanelAccent}" /><Setter TargetName="Surface" Property="BorderThickness" Value="1" /></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value>
+        </Setter>
+    </Style>
+    <DataTemplate x:Key="RunningProgramTemplate">
+        <StackPanel>
+            <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold"/>
+            <TextBlock Text="{Binding Path}" TextTrimming="CharacterEllipsis" Foreground="{StaticResource PanelMuted}" FontSize="12" Margin="0,6,0,0" ToolTip="{Binding Path}"/>
+        </StackPanel>
+    </DataTemplate>
+</ResourceDictionary>

@@ -108,8 +108,8 @@ internal sealed class FocusValidation : Form
         {
             Check(active.Enabled && active.Focused?.OwnsFocus == true, $"{behavior.Mode}/{behavior.Completion}: input surface gains foreground focus");
             Check(behavior.Mode == InputFocusMode.External
-                ? active.Focused!.Form.Visible && TsfClient.GetForegroundWindow() == active.Focused.Form.Handle
-                : !active.Focused!.Form.Visible && overlay!.Visible && TsfClient.GetForegroundWindow() == overlay.Handle,
+                ? active.Focused!.Form.IsVisible && TsfClient.GetForegroundWindow() == active.Focused.Form.Handle
+                : !active.Focused!.Form.IsVisible && overlay!.Visible && TsfClient.GetForegroundWindow() == overlay.Handle,
                 $"{behavior.Mode}: only the intended input surface is shown and activated");
         }
     }
@@ -124,6 +124,62 @@ internal sealed class FocusValidation : Form
         using (var g = Graphics.FromImage(bitmap)) g.CopyFromScreen(form.PointToScreen(Point.Empty), Point.Empty, bitmap.Size);
         bitmap.Save(Path.Combine(root, "artifacts", name));
     }
+    private async Task VerifyExternalWindow()
+    {
+        var window = active!.Focused!.Form;
+        await window.Dispatcher.InvokeAsync(window.UpdateLayout, System.Windows.Threading.DispatcherPriority.ContextIdle);
+        await Task.Delay(150);
+        Check(window.Editor.ActualHeight is >= 30 and <= 36 && window.CompleteButton.ActualHeight is >= 26 and <= 32 && window.ActualHeight <= 114,
+            "External Fluent editor stays one line high with compact actions and no title row");
+        Check(window.TargetProgram.Text == "TestEditor.exe" && ProgramProfiles.Executable(targetWindow)?.EndsWith("TestEditor.exe", StringComparison.OrdinalIgnoreCase) == true,
+            "The x86 host identifies the owned target executable and displays it in the external window");
+        Check(window.DestinationLabel.Text.Contains("剪贴板") && window.CompletionLabel.Text == "完成并复制",
+            "External window displays the configured completion destination");
+        Check(GetWindowRect(window.Handle, out var bounds) && bounds.Bottom + 4 <= overlay!.Top,
+            "Fluent window respects its compact height and does not overlap the nine-grid panel");
+        var area = Screen.FromRectangle(overlay!.Bounds).WorkingArea;
+        Check(bounds.Left >= area.Left && bounds.Top >= area.Top && bounds.Right <= area.Right,
+            "External window fits within the current monitor work area");
+        window.PlaceAbove(new Rectangle(overlay.Right - 390, overlay.Top, 390, overlay.Height));
+        window.UpdateLayout(); await Task.Delay(100);
+        var cancelRight = window.CancelButton.PointToScreen(new System.Windows.Point(window.CancelButton.ActualWidth, 0)).X;
+        var completeLeft = window.CompleteButton.PointToScreen(new System.Windows.Point()).X;
+        Check(cancelRight + 4 <= completeLeft && window.Editor.ActualHeight is >= 30 and <= 36 &&
+            Math.Abs(window.TargetProgram.PointToScreen(new()).Y - window.Status.PointToScreen(new()).Y) <= 1 &&
+            Math.Abs(window.DestinationLabel.PointToScreen(new()).Y - window.CharacterCount.PointToScreen(new()).Y) <= 1,
+            "Compact placement keeps actions separate and program, destination, status and count on one row");
+        foreach (var family in Enum.GetValues<GamepadFamily>()) window.UseFamily(family);
+        Check(((SteamGlyph)window.CompletionGlyph.Content).Family == Enum.GetValues<GamepadFamily>().Last(),
+            "Completion uses the active controller family's Steam SVG glyph");
+        window.UseFamily(GamepadFamily.Xbox); window.PlaceAbove(overlay.Bounds);
+
+        window.Editor.Text = "甲乙丙"; window.Editor.Select(1, 1);
+        await active.Handle(new(PadAction.SwitchMode));
+        await active.Handle(new(PadAction.Region, 0)); await active.Handle(new(PadAction.Region, 1));
+        Check(window.Editor.Text == "甲12丙" && window.Editor.SelectionStart == 3 && window.Editor.SelectionLength == 0,
+            "WPF gamepad commits replace the selection once and then insert at the advancing caret");
+        await active.Handle(new(PadAction.Backspace)); window.Editor.Select(0, 2); await active.Handle(new(PadAction.Backspace));
+        Check(window.Editor.Text == "丙", "External backspace removes both preceding text and an explicit selection correctly");
+        window.Editor.Text = "好😀e\u0301"; window.Editor.CaretIndex = window.Editor.Text.Length;
+        await active.Handle(new(PadAction.Backspace));
+        Check(window.Editor.Text == "好😀", "External backspace removes a combining character as one text element");
+        await active.Handle(new(PadAction.Backspace));
+        Check(window.Editor.Text == "好", "External backspace at the caret removes a whole emoji");
+        window.Editor.Text = "甲乙"; window.Editor.CaretIndex = 2; window.Editor.Focus();
+        await window.Dispatcher.InvokeAsync(window.UpdateLayout, System.Windows.Threading.DispatcherPriority.ContextIdle);
+        await Task.Delay(80); // Let TSF and WPF finish the preceding read-only/focus changes before native key delivery.
+        Check(active.Focused.OwnsFocus && window.Editor.IsKeyboardFocused, "External WPF editor receives native keyboard focus under the tray message loop");
+        SendKeys.SendWait("{LEFT}"); await Task.Delay(80);
+        SendKeys.SendWait("{ENTER}"); await Task.Delay(80);
+        Check(window.Editor.Text.Replace("\r", "") == "甲\n乙", "Native arrow and Enter keys edit multiple lines without triggering completion: " +
+            JsonSerializer.Serialize(window.Editor.Text) + ", caret=" + window.Editor.CaretIndex + ", focused=" + window.Editor.IsKeyboardFocused);
+        window.Click("ClearButton");
+        Check(window.Editor.Text == "" && active.Focused.Draft == "" && window.Editor.IsKeyboardFocused,
+            "The Fluent clear action clears the draft and returns the caret to the editor");
+        await active.Handle(new(PadAction.SwitchMode));
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct WindowBounds { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(nint window, out WindowBounds bounds);
     private async Task Run()
     {
         await VerifyProfiles(); VerifyController();
@@ -133,6 +189,7 @@ internal sealed class FocusValidation : Form
         var before = (await switcher.RunAsync(targetWindow, "query")).Before;
         var inputEvents = NumericInput.SentKeyEvents;
         await Begin(new() { Mode = InputFocusMode.External, Completion = CompletionDestination.Clipboard });
+        await VerifyExternalWindow();
         await Nihao(); await active!.Handle(new(PadAction.Confirm));
         Check(active.Focused!.Draft == "你好" && Read(field) == "", "External candidate confirmation edits only the local textbox");
         await active.Handle(new(PadAction.SwitchMode));
@@ -140,7 +197,8 @@ internal sealed class FocusValidation : Form
         Check(active.Focused.Draft == "你好10" && NumericInput.SentKeyEvents == inputEvents, "External numeric mode edits locally without OS keyboard events");
         active.Focused.Form.Editor.SelectedText = "😀"; await active.Handle(new(PadAction.Backspace));
         Check(active.Focused.Draft == "你好10", "External backspace removes a complete surrogate-pair character");
-        await Task.Delay(150); Snapshot("external-input-window.png", active.Focused.Form);
+        await Task.Delay(250); active.Focused.Form.UpdateLayout();
+        PanelSnapshot.Save(active.Focused.Form, Path.Combine(root, "artifacts", "external-input-window.png"));
         // Materialize the old clipboard before changing ownership; a live OLE proxy may
         // no longer be usable after SetText replaces its owner.
         var oldClipboard = Clipboard.GetDataObject();
@@ -155,9 +213,15 @@ internal sealed class FocusValidation : Form
         var testClipboard = "你好10";
         try
         {
+            active.Focused.Form.Click("CopyButton");
+            for (var i = 0; i < 40 && (!Clipboard.ContainsText() || Clipboard.GetText() != testClipboard); i++) await Task.Delay(25);
+            Check(active.Enabled && active.Focused.Draft == testClipboard && Clipboard.GetText() == testClipboard,
+                "The Fluent copy action copies the draft without closing input or discarding text");
             released = false;
             var completion = active.Handle(new(PadAction.Complete)); await Task.Delay(120);
             Check(!completion.IsCompleted && active.Focused.OwnsFocus, "Completion waits for held controls before returning focus");
+            Check(active.Focused.Form.Editor.IsReadOnly && !active.Focused.Form.CompleteButton.IsEnabled && !active.Focused.Form.ClearButton.IsEnabled && !active.Focused.Form.CopyButton.IsEnabled,
+                "External submission locks editing and duplicate actions while waiting for controls to release");
             heldState = new() { RX = 22000 }; released = true;
             await Task.Delay(120);
             Check(!completion.IsCompleted && active.Focused.OwnsFocus, "External completion still waits for sticks to center");
@@ -180,14 +244,24 @@ internal sealed class FocusValidation : Form
         Check((await switcher.RunAsync(targetWindow, "query")).After == before, "Clipboard-only mode preserves the original input method");
 
         await Focus(field); await Begin(new() { Mode = InputFocusMode.External, Completion = CompletionDestination.Target });
-        await Nihao(); await active!.Handle(new(PadAction.Complete));
-        Check(!active.Enabled && Read(field) == "你好", "Long completion confirms the pending candidate and fills the target through TSF");
+        await Nihao();
+        active!.Focused!.Form.UseFamily(GamepadFamily.PS5);
+        await Task.Delay(150);
+        PanelSnapshot.Save(active.Focused.Form, Path.Combine(root, "artifacts", "external-input-ps5-window.png"));
+        active.Focused.Form.Click("CompleteButton");
+        for (var i = 0; i < 160 && (active.Enabled || active.Busy); i++) await Task.Delay(25);
+        Check(!active.Enabled && !active.Busy && Read(field) == "你好", "The Fluent completion button confirms the pending candidate and fills the target through TSF");
         Check((await switcher.RunAsync(targetWindow, "query")).After == before, "Target completion restores the original input method");
 
         await Focus(field); await Begin(new() { Mode = InputFocusMode.External });
         active!.Focused!.Form.Editor.Text = "保留草稿"; await active.Enable(false);
         await Focus(field); await Begin(new() { Mode = InputFocusMode.External }, sameSession: true);
         Check(active.Focused!.Draft == "保留草稿", "Closing and reopening external input retains the draft for that program");
+        active.Focused.Form.Close();
+        for (var i = 0; i < 160 && (active.Enabled || active.Busy); i++) await Task.Delay(25);
+        Check(!active.Enabled && !active.Busy && !active.Focused.Form.IsVisible && active.Focused.Draft == "保留草稿" && InputMethodSwitcher.Foreground() == targetWindow,
+            "Closing the compact Fluent window follows the normal focus restoration path and retains the draft");
+        await Focus(field); await Begin(new() { Mode = InputFocusMode.External }, sameSession: true);
         active.Focused.Form.Editor.Text = new string('字', 1025); await active.Handle(new(PadAction.Complete));
         Check(active.Enabled && active.Focused.Draft.Length == 1025 && Read(field) == "你好", "Oversize TSF submissions retain the draft without partial insertion");
         active.Focused.Form.Editor.Text = "焦点保护";
@@ -223,7 +297,7 @@ internal sealed class FocusValidation : Form
         await active.Handle(new(PadAction.Backspace));
         await active.Handle(new(PadAction.Backspace));
         Check(Read(field) == "你好你好" && active.Focused!.OwnsFocus, "Defocus backspace edits the target and returns focus");
-        Check(!active.Focused.Form.Visible && TsfClient.GetForegroundWindow() == overlay!.Handle, "Candidate, numeric and backspace relays return to the grid without showing an input window");
+        Check(!active.Focused.Form.IsVisible && TsfClient.GetForegroundWindow() == overlay!.Handle, "Candidate, numeric and backspace relays return to the grid without showing an input window");
         heldState = new() { LX = 22000 };
         var closing = active.Enable(false); await Task.Delay(120);
         Check(!closing.IsCompleted && active.Focused.OwnsFocus, "Closing defocus input still waits for sticks to center");
@@ -239,7 +313,7 @@ internal sealed class FocusValidation : Form
         var lostProcess = editors.Single(p => p.Id == lostTarget.Current.ProcessId);
         lostProcess.CloseMainWindow(); await lostProcess.WaitForExitAsync();
         await active!.Handle(new(PadAction.Confirm));
-        Check(active.Focused!.HasRetainedText && !active.Focused.Form.Visible && overlay!.Visible,
+        Check(active.Focused!.HasRetainedText && !active.Focused.Form.IsVisible && overlay!.Visible,
             "Failed defocus submission retains text without opening an input window");
         active.Focused.ClearRetainedText();
         Check(!active.Focused.HasRetainedText, "Panel recovery action explicitly clears retained defocus text");
@@ -314,20 +388,34 @@ internal sealed class FocusValidation : Form
         {
             var defaults = ProgramProfiles.Load(folder, out var warning);
             Check(warning == null && defaults.Resolve("C:\\Game.exe").Mode == InputFocusMode.None, "Missing program settings default to no focus intervention");
-            using var form = new ProgramProfilesForm(defaults, p => p.Save(folder)); form.TopMost = true; form.Show(); await Task.Delay(200);
-            ComboBox Selector(string name) => (ComboBox)form.Controls.Find(name, true).Single();
+            using var form = new ProgramProfilesForm(defaults, p => p.Save(folder)); form.Topmost = true; form.Show(); await Task.Delay(200);
+            System.Windows.Controls.ComboBox Selector(string name) => form.Control<System.Windows.Controls.ComboBox>(name);
             var mode = Selector("InputModeSelector"); var destination = Selector("CompletionSelector");
             mode.SelectedIndex = (int)InputFocusMode.External; destination.SelectedIndex = (int)CompletionDestination.Clipboard;
-            Check(mode.DropDownStyle == ComboBoxStyle.DropDownList && destination.DropDownStyle == ComboBoxStyle.DropDownList && mode.Items.Count == 3 && destination.Items.Count == 2 && destination.Enabled,
+            Check(!mode.IsEditable && !destination.IsEditable && mode.Items.Count == 3 && destination.Items.Count == 2 && destination.IsEnabled,
                 "Mode and completion use single-selection dropdowns with three and two options");
             form.AddProgram("C:\\Games\\Example.exe"); mode.SelectedIndex = (int)InputFocusMode.Defocus;
-            Check(!destination.Enabled, "Completion dropdown is disabled outside external input mode");
-            var draft = form.Draft; draft.Save(folder); var loaded = ProgramProfiles.Load(folder, out warning);
-            Check(warning == null && loaded.Resolve("c:\\games\\EXAMPLE.exe").Mode == InputFocusMode.Defocus && loaded.Resolve("C:\\Other.exe") == new InputBehavior { Mode = InputFocusMode.External, Completion = CompletionDestination.Clipboard }, "Per-executable overrides and global fallback survive save/reload with case-insensitive paths");
-            ((ListBox)form.Controls.Find("ProgramList", true).Single()).SelectedIndex = 0;
+            Check(!destination.IsEnabled, "Completion dropdown is disabled outside external input mode");
+            form.AddProgram("c:\\games\\EXAMPLE.exe");
+            Check(form.Draft.Programs.Count == 1 && mode.SelectedIndex == (int)InputFocusMode.Defocus, "Adding an existing path with different casing retains its unsaved independent configuration");
+            var search = form.Control<Wpf.Ui.Controls.TextBox>("ProgramSearch"); search.Text = "no-match";
+            Check(form.Control<System.Windows.Controls.ListBox>("ProgramList").Items.Count == 1 && form.Draft.Programs[0].Behavior.Mode == InputFocusMode.Defocus,
+                "Filtering the program list preserves unsaved edits and keeps global configuration accessible");
+            search.Text = ""; form.Control<System.Windows.Controls.ListBox>("ProgramList").SelectedIndex = 1;
+            form.Click("RemoveProgram");
+            Check(form.Draft.Programs.Count == 0 && form.Draft.Resolve("C:\\Games\\Example.exe") == form.Draft.Global,
+                "Removing an independent configuration restores global inheritance");
+            form.AddProgram("C:\\Games\\Example.exe"); mode.SelectedIndex = (int)InputFocusMode.Defocus;
+            form.Control<System.Windows.Controls.ListBox>("ProgramList").SelectedIndex = 0;
             await Task.Delay(150);
-            Snapshot("program-profiles-window.png", form);
-            ((Button)form.Controls.Find("CancelProfiles", true).Single()).PerformClick();
+            PanelSnapshot.Save(form, Path.Combine(root, "artifacts", "program-profiles-window.png"));
+            form.Click("SaveProfiles"); var loaded = ProgramProfiles.Load(folder, out warning);
+            Check(warning == null && loaded.Resolve("c:\\games\\EXAMPLE.exe").Mode == InputFocusMode.Defocus && loaded.Resolve("C:\\Other.exe") == new InputBehavior { Mode = InputFocusMode.External, Completion = CompletionDestination.Clipboard }, "Per-executable overrides and global fallback survive save/reload with case-insensitive paths");
+            using (var cancel = new ProgramProfilesForm(loaded, _ => throw new Exception("Cancel unexpectedly saved")))
+            {
+                cancel.Show(); cancel.Control<System.Windows.Controls.ComboBox>("InputModeSelector").SelectedIndex = (int)InputFocusMode.None;
+                cancel.Click("CancelProfiles");
+            }
             Check(ProgramProfiles.Load(folder, out _).Global == loaded.Global, "Canceling program configuration does not save edits");
             File.WriteAllText(Path.Combine(folder, "program-profiles.json"), "{\"Global\":{\"Mode\":999}}");
             Check(ProgramProfiles.Load(folder, out warning).Global.Mode == InputFocusMode.None && warning != null, "Malformed profile values safely fall back with a warning");

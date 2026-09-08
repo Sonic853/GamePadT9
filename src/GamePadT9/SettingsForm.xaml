@@ -1,0 +1,108 @@
+<local:PanelWindow x:Class="GamePadT9.SettingsForm" x:ClassModifier="internal"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:GamePadT9" xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="GamePad T9 · 设置" x:Name="SettingsWindow" Width="1000" Height="830" MinWidth="820" MinHeight="620">
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <ui:TitleBar Title="GamePad T9" ShowMinimize="True" />
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="210"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Border Background="#171F21" Padding="16,26,16,20">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Margin="12,0,0,30">
+                        <TextBlock Text="GAMEPAD T9" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource PanelAccent}"/>
+                        <TextBlock Text="设置" FontSize="30" FontWeight="SemiBold" Margin="0,8,0,0"/>
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Bottom">
+                        <ui:Button x:Name="OpenProgramProfiles" Content="程序列表" Icon="{ui:SymbolIcon Apps24}" HorizontalAlignment="Stretch" Click="OpenPrograms"/>
+                        <TextBlock Text="为每个程序选择输入方式" Style="{StaticResource Description}" FontSize="12" Margin="8,12,0,0"/>
+                    </StackPanel>
+                    <ListBox x:Name="SettingsNavigation" Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource SideItem}" SelectionChanged="Navigate" VerticalAlignment="Top" AutomationProperties.Name="设置分类">
+                        <ListBoxItem><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="XboxController24" Margin="0,0,12,0"/><TextBlock Text="手柄与输入"/></StackPanel></ListBoxItem>
+                        <ListBoxItem><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Color24" Margin="0,0,12,0"/><TextBlock Text="面板外观"/></StackPanel></ListBoxItem>
+                        <ListBoxItem><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Keyboard24" Margin="0,0,12,0"/><TextBlock Text="输入法组件"/></StackPanel></ListBoxItem>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="32,28,32,16">
+                    <Grid>
+                        <StackPanel x:Name="InputPage">
+                            <TextBlock Text="手柄与输入" Style="{StaticResource PageHeading}"/>
+                            <TextBlock Text="选择手柄，调整适合自己的操作方式。" Style="{StaticResource Description}" Margin="0,0,0,24"/>
+                            <ui:Card Style="{StaticResource SettingsCard}">
+                                <StackPanel>
+                                    <DockPanel Margin="0,0,0,12"><Border DockPanel.Dock="Right" Background="#234638" CornerRadius="10" Padding="10,4"><TextBlock x:Name="DeviceBadge" FontSize="12" Foreground="{StaticResource PanelAccent}"/></Border><TextBlock Text="当前手柄" Style="{StaticResource SectionHeading}" VerticalAlignment="Center"/></DockPanel>
+                                    <ComboBox x:Name="ControllerSelector" MinHeight="40" HorizontalContentAlignment="Stretch" AutomationProperties.Name="已连接手柄"/>
+                                    <TextBlock x:Name="DeviceStatus" Style="{StaticResource Description}" FontSize="12" Margin="0,10,0,0"/>
+                                </StackPanel>
+                            </ui:Card>
+                            <ui:Card Style="{StaticResource SettingsCard}">
+                                <StackPanel>
+                                    <TextBlock Text="输入映射" Style="{StaticResource SectionHeading}"/>
+                                    <Grid Margin="0,14,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="240"/></Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center"><TextBlock Text="选择九宫格区域"/><TextBlock Text="移动摇杆选择，按下摇杆确认" Style="{StaticResource Description}" FontSize="12"/></StackPanel>
+                                        <ComboBox x:Name="StickSelector" Grid.Column="1" MinHeight="44" AutomationProperties.Name="选择九宫格的摇杆"/>
+                                    </Grid>
+                                    <Border Height="1" Background="#3D4547" Margin="0,18"/>
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="240"/></Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center"><TextBlock Text="确认区域输入"/><TextBlock Text="按下扳机输入当前区域" Style="{StaticResource Description}" FontSize="12"/></StackPanel>
+                                        <ComboBox x:Name="TriggerSelector" Grid.Column="1" MinHeight="44" AutomationProperties.Name="确认输入的扳机"/>
+                                    </Grid>
+                                </StackPanel>
+                            </ui:Card>
+                            <ui:Card Style="{StaticResource SettingsCard}"><StackPanel>
+                                <TextBlock Text="准备开始" Style="{StaticResource SectionHeading}"/>
+                                <DockPanel Margin="0,8,0,0"><StackPanel x:Name="ActivationKeys" Orientation="Horizontal" DockPanel.Dock="Right"/><TextBlock Text="回到目标文本框，同时按下两枚菜单键。" Style="{StaticResource Description}" VerticalAlignment="Center"/></DockPanel>
+                                <TextBlock Text="设置窗口打开期间，手柄输入暂停。" Style="{StaticResource Description}" FontSize="12" Margin="0,12,0,0"/>
+                            </StackPanel></ui:Card>
+                        </StackPanel>
+                        <StackPanel x:Name="AppearancePage" Visibility="Collapsed">
+                            <TextBlock Text="面板外观" Style="{StaticResource PageHeading}"/>
+                            <TextBlock Text="调整各区域的可见度，文字始终保持清晰。" Style="{StaticResource Description}" Margin="0,0,0,24"/>
+                            <ui:Card Style="{StaticResource SettingsCard}"><StackPanel>
+                                <TextBlock Text="可见度" Style="{StaticResource SectionHeading}"/>
+                                <TextBlock Text="0% 完全透明 · 100% 完全不透明" Style="{StaticResource Description}" FontSize="12" Margin="0,0,0,18"/>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/><ColumnDefinition Width="96"/><ColumnDefinition Width="22"/></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition Height="52"/><RowDefinition Height="52"/><RowDefinition Height="52"/></Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Text="面板背景" VerticalAlignment="Center"/><Slider x:Name="OpacitySlider0" Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="4,0,20,0" AutomationProperties.Name="面板背景可见度"/><ui:NumberBox x:Name="OpacityValue0" Grid.Row="0" Grid.Column="2" Minimum="0" Maximum="100" MaxDecimalPlaces="0" SpinButtonPlacementMode="Compact" ClearButtonEnabled="False" Padding="10,6" VerticalAlignment="Center" AutomationProperties.Name="面板背景可见度百分比"/><TextBlock Grid.Row="0" Grid.Column="3" Text="%" VerticalAlignment="Center" Margin="7,0,0,0"/>
+<TextBlock Grid.Row="1" Text="九宫格" VerticalAlignment="Center"/><Slider x:Name="OpacitySlider1" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="4,0,20,0" AutomationProperties.Name="九宫格可见度"/><ui:NumberBox x:Name="OpacityValue1" Grid.Row="1" Grid.Column="2" Minimum="0" Maximum="100" MaxDecimalPlaces="0" SpinButtonPlacementMode="Compact" ClearButtonEnabled="False" Padding="10,6" VerticalAlignment="Center" AutomationProperties.Name="九宫格可见度百分比"/><TextBlock Grid.Row="1" Grid.Column="3" Text="%" VerticalAlignment="Center" Margin="7,0,0,0"/>
+<TextBlock Grid.Row="2" Text="高亮区域" VerticalAlignment="Center"/><Slider x:Name="OpacitySlider2" Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="4,0,20,0" AutomationProperties.Name="高亮区域可见度"/><ui:NumberBox x:Name="OpacityValue2" Grid.Row="2" Grid.Column="2" Minimum="0" Maximum="100" MaxDecimalPlaces="0" SpinButtonPlacementMode="Compact" ClearButtonEnabled="False" Padding="10,6" VerticalAlignment="Center" AutomationProperties.Name="高亮区域可见度百分比"/><TextBlock Grid.Row="2" Grid.Column="3" Text="%" VerticalAlignment="Center" Margin="7,0,0,0"/>
+                                </Grid>
+                            </StackPanel></ui:Card>
+                            <ui:Card Style="{StaticResource SettingsCard}"><StackPanel><TextBlock Text="效果预览" Style="{StaticResource SectionHeading}"/><local:PanelVisibilityPreview x:Name="VisibilityPreview" Height="206" Margin="0,8,0,0"/></StackPanel></ui:Card>
+                        </StackPanel>
+                        <StackPanel x:Name="ComponentPage" Visibility="Collapsed">
+                            <TextBlock Text="输入法组件" Style="{StaticResource PageHeading}"/>
+                            <TextBlock Text="选择一种接入方式，让手柄输入进入目标程序。" Style="{StaticResource Description}" Margin="0,0,0,24"/>
+                            <ui:Card Style="{StaticResource SettingsCard}"><StackPanel>
+                                <TextBlock Text="GamePad T9 输入法" Style="{StaticResource SectionHeading}"/><TextBlock x:Name="StandaloneState" Foreground="{StaticResource PanelAccent}" FontSize="12" Margin="0,0,0,8"/>
+                                <TextBlock Text="在 Windows 输入法列表中添加独立条目。" Style="{StaticResource Description}"/>
+                                <ui:Button x:Name="ToggleStandalone" Content="注册 GamePad T9 输入法" Icon="{ui:SymbolIcon Keyboard24}" Margin="0,18,0,0" Click="ToggleStandaloneClick"/>
+                            </StackPanel></ui:Card>
+                            <ui:Card Style="{StaticResource SettingsCard}"><StackPanel>
+                                <TextBlock Text="小白 T9 联动" Style="{StaticResource SectionHeading}"/><TextBlock x:Name="XiaobaiState" Foreground="{StaticResource PanelAccent}" FontSize="12" Margin="0,0,0,8"/>
+                                <TextBlock Text="沿用已安装的小白 T9 输入法条目，增加手柄输入。" Style="{StaticResource Description}"/>
+                                <ui:Button x:Name="ToggleXiaobai" Content="注入小白 T9 输入" Icon="{ui:SymbolIcon Link24}" Margin="0,18,0,0" Click="ToggleXiaobaiClick"/>
+                            </StackPanel></ui:Card>
+                            <ProgressBar x:Name="ComponentProgress" Visibility="Collapsed" IsIndeterminate="True" Height="4" Margin="0,0,0,12"/>
+                            <TextBlock x:Name="ComponentStatus" TextWrapping="Wrap" LineHeight="23" Margin="0,0,0,12" AutomationProperties.Name="输入法组件状态"/>
+                            <TextBlock Text="两种方式互斥，切换前需先卸载或还原。组件操作立即生效，需要管理员授权；操作后请重新打开目标程序。" Style="{StaticResource Description}" FontSize="12"/>
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+                <ui:InfoBar x:Name="SaveError" Grid.Row="1" Severity="Error" IsOpen="False" IsClosable="True" Margin="32,0,32,12"/>
+                <Border Grid.Row="2" BorderBrush="#354042" BorderThickness="0,1,0,0" Padding="24,16">
+                    <DockPanel x:Name="Footer">
+                        <ui:Button x:Name="ResetDefaults" Content="恢复默认" Appearance="Transparent" Click="Defaults" DockPanel.Dock="Left"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <ui:Button x:Name="CancelSettings" Content="取消" MinWidth="88" Margin="0,0,10,0" Click="Cancel" IsCancel="True"/>
+                            <ui:Button x:Name="SaveSettings" Content="保存设置" Style="{StaticResource PrimaryAction}" Click="Save" IsDefault="True"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+</local:PanelWindow>

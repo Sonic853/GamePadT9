@@ -75,7 +75,7 @@ internal sealed class GamePadApplication : ApplicationContext
             }, () => devices.Connected, () => devices.Error, new IntegrationInstaller(root));
             form.ProgramsRequested += async () => await OpenProfiles();
             settingsForm = form;
-            form.FormClosed += (_, _) => { settingsForm = null; controller.Reset(); form.Dispose(); };
+            form.Closed += (_, _) => { settingsForm = null; controller.Reset(); form.Dispose(); };
             form.Show(); form.Activate();
         }
         finally { openingSettings = false; }
@@ -89,9 +89,9 @@ internal sealed class GamePadApplication : ApplicationContext
         {
             await session.ShutdownAsync(); controller.Reset();
             if (exiting) return;
-            var form = new ProgramProfilesForm(profiles, value => { value.Save(root); profiles = value; });
+            var form = new ProgramProfilesForm(profiles, value => { value.Save(root); profiles = value; }, devices.Active?.Family ?? preferences.ControllerFamily);
             profilesForm = form;
-            form.FormClosed += (_, _) => { profilesForm = null; controller.Reset(); form.Dispose(); };
+            form.Closed += (_, _) => { profilesForm = null; controller.Reset(); form.Dispose(); };
             form.Show(); form.Activate();
         }
         finally { openingProfiles = false; }
@@ -145,6 +145,7 @@ internal sealed class GamePadApplication : ApplicationContext
     protected override async void ExitThreadCore()
     {
         if (exiting) return;
+        if (settingsForm?.IsOperating == true) { settingsForm.Activate(); return; }
         exiting = true; timer.Stop();
         settingsForm?.Close();
         profilesForm?.Close();

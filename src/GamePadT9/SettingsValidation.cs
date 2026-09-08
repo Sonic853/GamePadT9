@@ -61,32 +61,53 @@ internal sealed class SettingsValidation : Form
             var saved = false;
             using (var form = new SettingsForm(defaults, value => { value.Save(directory); saved = true; }))
             {
-                form.TopMost = true; form.Show(); await Task.Delay(200);
+                form.Topmost = true; form.Show();
+                await form.Dispatcher.InvokeAsync(form.UpdateLayout, System.Windows.Threading.DispatcherPriority.ContextIdle);
+                await Task.Delay(250);
                 Check(IsWindowVisible(form.Handle), "Settings window is visible even when the tray host starts hidden");
-                Check(((ComboBox)form.Controls.Find("StickSelector", true).Single()).Text.Contains("右摇杆") &&
-                    ((ComboBox)form.Controls.Find("TriggerSelector", true).Single()).Text.Contains("右扳机"), "Settings controls display the current left/right selection");
-                using (var picture = new Bitmap(form.ClientSize.Width, form.ClientSize.Height))
-                {
-                    using (var g = Graphics.FromImage(picture)) g.CopyFromScreen(form.PointToScreen(Point.Empty), Point.Empty, picture.Size);
-                    picture.Save(Path.Combine(root, "artifacts", "settings-window.png"));
-                }
-                ((ComboBox)form.Controls.Find("StickSelector", true).Single()).SelectedIndex = 0;
-                ((ComboBox)form.Controls.Find("TriggerSelector", true).Single()).SelectedIndex = 1;
-                ((NumericUpDown)form.Controls.Find("OpacityValue0", true).Single()).Value = 20;
-                ((TrackBar)form.Controls.Find("OpacitySlider1", true).Single()).Value = 65;
-                ((NumericUpDown)form.Controls.Find("OpacityValue2", true).Single()).Value = 95;
-                ((Button)form.Controls.Find("SaveSettings", true).Single()).PerformClick();
+                Check(form.Control<System.Windows.Controls.ComboBox>("ControllerSelector").ActualWidth > 100 &&
+                    form.Control<Wpf.Ui.Controls.Button>("SaveSettings").ActualHeight > 20,
+                    "WPF settings content and footer are rendered and laid out");
+                Check(form.Control<System.Windows.Controls.ComboBox>("StickSelector").SelectedIndex == 1 &&
+                    form.Control<System.Windows.Controls.ComboBox>("TriggerSelector").SelectedIndex == 1, "Settings controls display the current left/right selection");
+                var keyboardSelector = form.Control<System.Windows.Controls.ComboBox>("StickSelector");
+                form.Activate(); keyboardSelector.Focus(); await Task.Delay(80);
+                Check(GetForegroundWindow() == form.Handle && keyboardSelector.IsKeyboardFocusWithin, "Modeless WPF controls acquire keyboard focus from the tray host");
+                SendKeys.SendWait("{UP}"); await Task.Delay(80);
+                Check(keyboardSelector.SelectedIndex == 0, "Native arrow keys navigate the WPF dropdown through the WinForms message loop");
+                keyboardSelector.SelectedIndex = 1;
+                PanelSnapshot.Save(form, Path.Combine(root, "artifacts", "settings-window.png"));
+                form.Control<System.Windows.Controls.ComboBox>("StickSelector").SelectedIndex = 0;
+                form.Control<System.Windows.Controls.ComboBox>("TriggerSelector").SelectedIndex = 1;
+                form.ShowPage(1); await Task.Delay(150);
+                form.Control<Wpf.Ui.Controls.NumberBox>("OpacityValue0").Value = 20;
+                form.Control<System.Windows.Controls.Slider>("OpacitySlider1").Value = 65;
+                form.Control<Wpf.Ui.Controls.NumberBox>("OpacityValue2").Value = 95;
+                Check(form.Control<Wpf.Ui.Controls.NumberBox>("OpacityValue0").Text == "20" &&
+                    form.Control<Wpf.Ui.Controls.NumberBox>("OpacityValue1").Text == "65", "Percentage fields display the values changed by typing and sliders");
+                await Task.Delay(150); PanelSnapshot.Save(form, Path.Combine(root, "artifacts", "settings-appearance-window.png"));
+                form.Click("SaveSettings");
             }
             var persisted = UserSettings.Load(directory, out warning);
             Check(saved && warning == null && persisted == new UserSettings { Stick = ControlSide.Left, Trigger = ControlSide.Right, PanelOpacity = 20, GridOpacity = 65, HighlightOpacity = 95 },
                 "Saving real settings controls persists independent bindings and visibility across reloads");
             using (var cancel = new SettingsForm(persisted, _ => throw new Exception("Cancel unexpectedly saved")))
             {
-                cancel.Show(); ((Button)cancel.Controls.Find("ResetDefaults", true).Single()).PerformClick();
+                cancel.Show(); cancel.Click("ResetDefaults");
                 Check(cancel.Draft == defaults, "Restore defaults resets the complete settings draft");
-                ((Button)cancel.Controls.Find("CancelSettings", true).Single()).PerformClick();
+                cancel.Activate(); await Task.Delay(80);
+                Check(GetForegroundWindow() == cancel.Handle, "Cancel keyboard check targets only its owned settings window");
+                SendKeys.SendWait("{ESC}"); await Task.Delay(80);
+                Check(!cancel.IsVisible, "Escape closes the WPF settings window without saving");
             }
             Check(UserSettings.Load(directory, out _) == persisted, "Cancel leaves the saved settings unchanged");
+            using (var failedSave = new SettingsForm(persisted, _ => throw new IOException("Verification: file is not writable")))
+            {
+                failedSave.Show(); failedSave.Click("SaveSettings");
+                Check(failedSave.IsVisible && failedSave.Draft == persisted && failedSave.Control<Wpf.Ui.Controls.InfoBar>("SaveError").IsOpen,
+                    "Failed saves retain the draft and show an inline error instead of closing the panel");
+                failedSave.Click("CancelSettings");
+            }
             File.WriteAllText(Path.Combine(directory, "user-settings.json"), "{\"GridOpacity\":150}");
             Check(UserSettings.Load(directory, out warning) == defaults && warning != null, "Invalid settings fall back without preventing startup");
 
@@ -179,4 +200,5 @@ internal sealed class SettingsValidation : Form
     }
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsWindowVisible(nint window);
+    [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
 }

@@ -1,5 +1,13 @@
 # Third-party components
 
+## WPF UI 4.3.0
+
+The NuGet packages `WPF-UI` and `WPF-UI.Abstractions` provide the Fluent configuration windows, cards, controls, themes and interface icons. They are bundled into the portable application's executable without the .NET runtime.
+
+Source: https://github.com/lepoco/wpfui/tree/4.3.0
+
+WPF UI is distributed under the MIT license. Its original license and bundled third-party notices are preserved in `third_party/WPF-UI` and copied to `licenses/WPF-UI.md` and `licenses/WPF-UI-ThirdPartyNotices.txt`. Steam controller art continues to use the original SVG resources; the WPF controls render these at their actual display DPI into an in-memory surface, without additional PNG assets.
+
 ## Steam controller glyphs
 
 The application embeds 34 unmodified SVG originals selected by `src/GamePadT9/SteamGlyphs.props` from the classified folders in `src/GamePadT9/Assets/Steam`. PNG button glyphs, including the former root-level copies, have been removed; the import script collects SVG files only. The subdirectories contain the complete locally available Xbox, PS3 / PS4 / PS5, Nintendo Switch / Switch 2 / Joy-Con and Steam Controller / Steam Controller 2015 glyph collection, including shared art, all supplied light / dark / knockout themes, SVG originals. These files were copied without modification from the locally installed Steam client's `controller_base/images/api` on 2026-09-08.

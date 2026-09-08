@@ -84,7 +84,7 @@ internal sealed class MainForm : Form
         {
             var area = Screen.FromHandle(TsfClient.GetForegroundWindow()).WorkingArea;
             // Fit the monitor's physical work area even at large display scaling.
-            var inputBarHeight = session.Focused is { Enabled: true, External: true } ? session.Focused.Form.Height + 4 : 0;
+            var inputBarHeight = session.Focused is { Enabled: true, External: true } ? (float)(FocusInputForm.DesignHeight * DeviceDpi / 96d) + 8 : 0;
             scale = Math.Min(DeviceDpi / 96f, Math.Min((area.Width - 32f) / DesignWidth, (area.Height - 32f - inputBarHeight) / DesignHeight));
             scale = Math.Max(0.5f, scale);
             ClientSize = new Size((int)(DesignWidth * scale), (int)(DesignHeight * scale));
