@@ -93,7 +93,9 @@ internal sealed class NotepadValidation : Form
         var inputProfileAfter = inputMethods == null ? null : await inputMethods.RunAsync(inputWindow, "query");
         var frameProfileAfter = inputMethods == null ? null : await inputMethods.RunAsync(frame, "query");
         if (inputMethods != null && (!inputProfileBefore!.Ok || !inputProfileAfter!.Ok ||
-            inputProfileAfter.After.Clsid != new Guid("595B67E9-48A3-4C82-B7B1-64E4A35C9D92"))) throw new Exception("编辑区未切换到 GamePad T9。");
+            (inputProfileAfter.After.Clsid != new Guid("595B67E9-48A3-4C82-B7B1-64E4A35C9D92") &&
+             inputProfileAfter.After.Clsid != new Guid("A3F4CDED-B1E9-41EE-9CA6-7B4D0DE6CB0A"))))
+            throw new Exception("编辑区未切换到可用的手柄输入法：" + session.Message);
         if (inputMethods != null && inputWindow.Thread != frameThread && frameProfileAfter!.After != frameProfileBefore!.Before)
             throw new Exception("切换编辑线程时意外修改了主窗口线程输入法。");
         Target? target = null;
@@ -104,6 +106,9 @@ internal sealed class NotepadValidation : Form
             await Task.Delay(100);
         }
         if (target == null || target.Value.Foreground != hwnd) throw new Exception("目标程序没有加载手柄输入组件。请重新打开程序并选择小白 T9 或 GamePad T9。");
+        if (inputMethods != null && (target.Value.Backend == InputBackend.Standalone) !=
+            (inputProfileAfter!.After.Clsid == new Guid("595B67E9-48A3-4C82-B7B1-64E4A35C9D92")))
+            throw new Exception("实际输入端点与自动切换后的输入法不一致。");
         if (useTestEditor && target.Value.Backend != (standalone ? InputBackend.Standalone : InputBackend.Xiaobai))
             throw new Exception("测试连接到了错误的输入法入口。");
         string? componentSha256 = null, componentPath = null;

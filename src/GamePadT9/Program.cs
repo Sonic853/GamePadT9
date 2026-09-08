@@ -23,6 +23,13 @@ internal static class Program
             if (!first) throw new InvalidOperationException("GamePad T9 已在运行。请先关闭已有实例。");
             using var engine = new RimeEngine(Settings.Load(root));
             if (args.Contains("--self-test")) return Validation.Run(root, engine);
+            if (args.Contains("--verify-controllers")) return ControllerValidation.Run(root, engine);
+            if (args.Contains("--verify-focus"))
+            {
+                using var verification = new FocusValidation(root, engine, args.Contains("--x86"));
+                System.Windows.Forms.Application.Run(verification);
+                return verification.Result;
+            }
             if (args.Contains("--verify-settings"))
             {
                 using var verification = new SettingsValidation(root, engine);
@@ -48,10 +55,10 @@ internal static class Program
                 return verification.Result;
             }
             using var host = new GamePadApplication(engine, root);
-            if (args.Contains("--settings"))
+            if (args.Contains("--settings") || args.Contains("--programs"))
             {
                 EventHandler? show = null;
-                show = async (_, _) => { System.Windows.Forms.Application.Idle -= show; await host.OpenSettings(); };
+                show = async (_, _) => { System.Windows.Forms.Application.Idle -= show; if (args.Contains("--programs")) await host.OpenProfiles(); else await host.OpenSettings(); };
                 System.Windows.Forms.Application.Idle += show;
             }
             System.Windows.Forms.Application.Run(host);
@@ -98,7 +105,8 @@ internal static class Validation
         try { NumericInput.SendDigit(InputMode.T9, 5, 0); }
         catch (InvalidOperationException) { numericBlocked = true; }
         Check(numericBlocked && NumericInput.SentKeyEvents == 0, "NumPad injection is rejected outside numeric mode");
-        var devices = Enumerable.Range(0, 4).Where(i => Controller.Read((uint)i, out _)).ToArray();
+        using var inputDevices = new GamepadDevices(); inputDevices.Poll(null, out _, true);
+        var devices = inputDevices.Connected.Select(d => new { d.Instance, d.Name, d.Family }).ToArray();
         // ni hao = 6 4 4 8 6 in the original physical-keypad encoding.
         foreach (var region in new[] { 5, 3, 3, 1, 5 }) engine.InputRegion(region);
         Check(engine.PendingCommit.Length == 0, "Original xiaobai T9 encodes without premature commit");
@@ -115,7 +123,7 @@ internal static class Validation
         var symbols = engine.View;
         Check(symbols.Candidates.Length > 0, "Top-left symbol group returns original schema candidates");
         engine.Clear();
-        var report = new { time = DateTimeOffset.Now, checks, connectedControllerSlots = devices, firstPage, symbols, tsfIntegration = "Not exercised by --self-test; requires a focused TSF application." };
+        var report = new { time = DateTimeOffset.Now, checks, connectedControllers = devices, firstPage, symbols, tsfIntegration = "Not exercised by --self-test; requires a focused TSF application." };
         var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
         Directory.CreateDirectory(Path.Combine(root, "artifacts"));
         File.WriteAllText(Path.Combine(root, "artifacts", "self-test.json"), json, new UTF8Encoding(false));

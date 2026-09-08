@@ -10,4 +10,16 @@
     <RuntimeIdentifier>win-x86</RuntimeIdentifier>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <Import Project="SteamGlyphs.props" />
+  <ItemGroup>
+    <EmbeddedResource Include="@(SteamGlyph)" LogicalName="GamePadT9.Assets.Steam.%(Filename)%(Extension)" />
+    <Content Include="..\..\third_party\SDL3\win-x86\SDL3.dll" Link="SDL3.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\third_party\SDL3\LICENSE.txt" Link="licenses\SDL3.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\third_party\SVG.NET\LICENSE.txt" Link="licenses\SVG.NET.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\third_party\ExCSS\LICENSE.txt" Link="licenses\ExCSS.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Svg" Version="3.4.8" />
+  </ItemGroup>
 </Project>

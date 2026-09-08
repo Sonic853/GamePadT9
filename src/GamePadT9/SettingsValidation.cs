@@ -29,6 +29,7 @@ internal sealed class SettingsValidation : Form
     private void Check(bool value, string message) { if (!value) throw new Exception(message); checks.Add(message); }
     private async Task Run()
     {
+        VerifySvgGlyphs();
         foreach (var stick in Enum.GetValues<ControlSide>()) foreach (var trigger in Enum.GetValues<ControlSide>())
         {
             var controller = new Controller(); controller.Configure(new() { Stick = stick, Trigger = trigger });
@@ -135,6 +136,46 @@ internal sealed class SettingsValidation : Form
             finally { if (!backdrop.HasExited) backdrop.CloseMainWindow(); }
         }
         finally { File.Delete(Path.Combine(directory, "user-settings.json")); Directory.Delete(directory); }
+    }
+    private void VerifySvgGlyphs()
+    {
+        var resources = typeof(ButtonGlyphs).Assembly.GetManifestResourceNames().Where(name => name.StartsWith("GamePadT9.Assets.Steam.")).ToArray();
+        Check(resources.Length == 34 && resources.All(name => name.EndsWith(".svg")), "All 34 runtime glyph resources are SVG, with no PNG fallback");
+        using var glyphs = new ButtonGlyphs();
+        foreach (var family in Enum.GetValues<GamepadFamily>()) foreach (var scale in new[] { 1f, 1.25f, 1.5f, 2f })
+        {
+            foreach (var button in ButtonGlyphs.Buttons)
+            {
+                var side = (int)(48 * scale);
+                using var bitmap = new Bitmap(side, side, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                using (var g = Graphics.FromImage(bitmap))
+                {
+                    g.Clear(Color.Transparent); g.ScaleTransform(scale, scale);
+                    g.SetClip(new RectangleF(0, 0, 48, 48));
+                    using var transform = g.Transform;
+                    var clip = g.ClipBounds; var smoothing = g.SmoothingMode;
+                    glyphs.DrawIcon(g, family, button, new(8, 8, 24, 24));
+                    using var after = g.Transform;
+                    if (!transform.Elements.SequenceEqual(after.Elements) || g.ClipBounds != clip || g.SmoothingMode != smoothing)
+                        throw new Exception($"{family}/{button}: SVG rendering leaked its graphics state at {scale * 100}%");
+                }
+                var visible = 0;
+                for (var y = 0; y < side; y++) for (var x = 0; x < side; x++)
+                {
+                    if (bitmap.GetPixel(x, y).A == 0) continue;
+                    visible++;
+                    if (x < 8 * scale || y < 8 * scale || x >= 32 * scale || y >= 32 * scale)
+                        throw new Exception($"{family}/{button}: SVG escaped its destination bounds at {scale * 100}%");
+                }
+                if (visible < 10) throw new Exception($"{family}/{button}: blank SVG rendering at {scale * 100}%");
+                if (family == GamepadFamily.Xbox && button == "A" && scale == 2)
+                {
+                    if (bitmap.GetPixel(40, 24).ToArgb() != Color.FromArgb(89, 191, 64).ToArgb())
+                        throw new Exception("SVG rendering did not preserve the original Steam Xbox green fill");
+                }
+            }
+            Check(true, $"{family} at {scale * 100}%: all 16 SVGs render, preserve transparency and stay within bounds without changing caller graphics state");
+        }
     }
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsWindowVisible(nint window);

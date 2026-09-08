@@ -6,6 +6,18 @@ namespace GamePadT9;
 
 internal sealed class SettingsForm : Form
 {
+    internal event Action? ProgramsRequested;
+    private readonly ComboBox device = new() { Name = "ControllerSelector", DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, ForeColor = Color.Black, BackColor = Color.White, DropDownWidth = 560 };
+    private readonly Label deviceStatus = Label("正在查找手柄…", 9);
+    private readonly Func<IReadOnlyList<GamepadDevice>> connected;
+    private readonly Func<string?> deviceError;
+    private readonly ButtonGlyphs glyphs = new();
+    private readonly PromptControl activation = new() { Dock = DockStyle.Fill };
+    private IReadOnlyList<GamepadDevice>? lastDevices;
+    private sealed record Choice(string? Id, string Name, GamepadFamily Family)
+    { public override string ToString() => Name; }
+    private Choice Selection => device.SelectedItem as Choice ?? new(null, "自动选择", GamepadFamily.Xbox);
+    private GamepadFamily Family => Selection.Id == null ? connected().FirstOrDefault()?.Family ?? GamepadFamily.Xbox : Selection.Family;
     private readonly ComboBox stick = new() { Name = "StickSelector", DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, ForeColor = Color.Black, BackColor = Color.White };
     private readonly ComboBox trigger = new() { Name = "TriggerSelector", DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, ForeColor = Color.Black, BackColor = Color.White };
     private readonly TrackBar[] sliders = new TrackBar[3];
@@ -14,28 +26,38 @@ internal sealed class SettingsForm : Form
     private bool updating;
     internal UserSettings Draft => new()
     {
+        ControllerId = Selection.Id, ControllerName = Selection.Id == null ? null : Selection.Name.Replace("（未连接）", ""),
+        ControllerFamily = Selection.Id == null ? GamepadFamily.Xbox : Selection.Family,
         Stick = (ControlSide)stick.SelectedIndex, Trigger = (ControlSide)trigger.SelectedIndex,
         PanelOpacity = (int)percentages[0].Value, GridOpacity = (int)percentages[1].Value, HighlightOpacity = (int)percentages[2].Value
     };
-    internal SettingsForm(UserSettings settings, Action<UserSettings> save)
+    internal SettingsForm(UserSettings settings, Action<UserSettings> save, Func<IReadOnlyList<GamepadDevice>>? connected = null, Func<string?>? deviceError = null)
     {
+        this.connected = connected ?? (() => Array.Empty<GamepadDevice>());
+        this.deviceError = deviceError ?? (() => null);
         Text = "GamePad T9 · 设置"; Name = "SettingsWindow";
         FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = MinimizeBox = false;
-        StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(600, 640); AutoScroll = true;
+        StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(620, 730); AutoScroll = true;
         AutoScaleDimensions = new SizeF(96, 96); AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Microsoft YaHei UI", 10); BackColor = Color.FromArgb(20, 24, 29); ForeColor = Color.WhiteSmoke;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Top, Height = 640, Padding = new Padding(24), ColumnCount = 1, RowCount = 9 };
-        foreach (var height in new[] { 40, 28, 90, 32, 30, 126, 148, 52, 46 }) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+        var layout = new TableLayoutPanel { Dock = DockStyle.Top, Height = 730, Padding = new Padding(24), ColumnCount = 1, RowCount = 9 };
+        foreach (var height in new[] { 40, 28, 180, 32, 30, 126, 148, 52, 46 }) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
         Controls.Add(layout);
-        layout.Controls.Add(Label("输入设置", 18, true), 0, 0);
+        var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
+        header.ColumnStyles.Add(new(SizeType.Percent, 100)); header.ColumnStyles.Add(new(SizeType.Absolute, 130));
+        header.Controls.Add(Label("输入设置", 18, true), 0, 0);
+        var programs = Button("程序列表…", "OpenProgramProfiles"); programs.Click += (_, _) => ProgramsRequested?.Invoke(); header.Controls.Add(programs, 1, 0);
+        layout.Controls.Add(header, 0, 0);
         layout.Controls.Add(Label("手柄", 11, true), 0, 1);
-        var bindings = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+        var bindings = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4 };
         bindings.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 145)); bindings.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        bindings.RowStyles.Add(new RowStyle(SizeType.Percent, 50)); bindings.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
-        stick.Items.AddRange(["左摇杆（按下为 L3）", "右摇杆（按下为 R3）"]);
-        trigger.Items.AddRange(["左扳机 LT", "右扳机 RT"]);
-        bindings.Controls.Add(Label("选择九宫格区域"), 0, 0); bindings.Controls.Add(stick, 1, 0);
-        bindings.Controls.Add(Label("确认区域输入"), 0, 1); bindings.Controls.Add(trigger, 1, 1);
+        foreach (var height in new[] { 43, 39, 49, 49 }) bindings.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+        stick.Items.AddRange(["左摇杆", "右摇杆"]); trigger.Items.AddRange(["左扳机", "右扳机"]);
+        StyleBinding(stick, true); StyleBinding(trigger, false);
+        bindings.Controls.Add(Label("已连接手柄"), 0, 0); bindings.Controls.Add(device, 1, 0);
+        bindings.Controls.Add(deviceStatus, 0, 1); bindings.SetColumnSpan(deviceStatus, 2);
+        bindings.Controls.Add(Label("选择九宫格区域"), 0, 2); bindings.Controls.Add(stick, 1, 2);
+        bindings.Controls.Add(Label("确认区域输入"), 0, 3); bindings.Controls.Add(trigger, 1, 3);
         layout.Controls.Add(bindings, 0, 2);
         layout.Controls.Add(Label("可见度", 11, true), 0, 3);
         layout.Controls.Add(Label("0% 完全透明，100% 完全不透明；文字保持清晰。", 9), 0, 4);
@@ -54,7 +76,7 @@ internal sealed class SettingsForm : Form
             opacity.Controls.Add(percentages[i], 2, i); opacity.Controls.Add(Label("%"), 3, i);
         }
         layout.Controls.Add(opacity, 0, 5); layout.Controls.Add(preview, 0, 6);
-        layout.Controls.Add(Label("设置期间手柄输入已暂停。保存后，在目标文本框\n按 View + Menu 开启输入。", 9), 0, 7);
+        layout.Controls.Add(activation, 0, 7);
         var buttons = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1 };
         buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120)); buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92)); buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
@@ -70,6 +92,7 @@ internal sealed class SettingsForm : Form
         buttons.Controls.Add(defaults, 0, 0); buttons.Controls.Add(cancel, 2, 0); buttons.Controls.Add(saveButton, 3, 0);
         layout.Controls.Add(buttons, 0, 8); AcceptButton = saveButton; CancelButton = cancel;
         stick.SelectedIndexChanged += (_, _) => Preview(); trigger.SelectedIndexChanged += (_, _) => Preview();
+        device.SelectedIndexChanged += (_, _) => { Preview(); UpdateDeviceStatus(); };
         SetDraft(settings);
         Load += (_, _) => { Height = Math.Min(Height, Screen.FromControl(this).WorkingArea.Height - 40); };
     }
@@ -78,6 +101,7 @@ internal sealed class SettingsForm : Form
         updating = true;
         try
         {
+            RebuildDevices(value.ControllerId, value.ControllerName, value.ControllerFamily);
             stick.SelectedIndex = (int)value.Stick; trigger.SelectedIndex = (int)value.Trigger;
             var values = new[] { value.PanelOpacity, value.GridOpacity, value.HighlightOpacity };
             for (var i = 0; i < 3; i++) { sliders[i].Value = values[i]; percentages[i].Value = values[i]; }
@@ -93,7 +117,62 @@ internal sealed class SettingsForm : Form
         ShowWindow(Handle, 1);
     }
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool ShowWindow(nint window, int command);
-    private void Preview() { if (!updating) { preview.Settings = Draft; preview.Invalidate(); } }
+    private void Preview()
+    {
+        if (updating) return;
+        preview.Settings = Draft; preview.Family = Family; preview.Invalidate();
+        activation.Family = Family; activation.Invalidate(); stick.Invalidate(); trigger.Invalidate();
+    }
+    internal void RefreshDevices()
+    {
+        var devices = connected();
+        if (lastDevices == null || !devices.SequenceEqual(lastDevices))
+        {
+            var current = Selection;
+            var wasUpdating = updating; updating = true;
+            try { RebuildDevices(current.Id, current.Name.Replace("（未连接）", ""), current.Family); }
+            finally { updating = wasUpdating; }
+            Preview();
+        }
+        UpdateDeviceStatus();
+    }
+    private void RebuildDevices(string? id, string? name, GamepadFamily family)
+    {
+        lastDevices = connected().ToArray();
+        device.BeginUpdate();
+        try
+        {
+            device.Items.Clear(); device.Items.Add(new Choice(null, "自动选择（保持当前手柄）", GamepadFamily.Xbox));
+            foreach (var pad in lastDevices) device.Items.Add(new Choice(pad.Id, $"{pad.Name} · #{pad.Instance}", pad.Family));
+            if (id != null && !lastDevices.Any(pad => pad.Id == id)) device.Items.Add(new Choice(id, (name ?? "已保存的手柄") + "（未连接）", family));
+            device.SelectedItem = device.Items.Cast<Choice>().First(item => item.Id == id);
+        }
+        finally { device.EndUpdate(); }
+        UpdateDeviceStatus();
+    }
+    private void UpdateDeviceStatus()
+    {
+        var error = deviceError();
+        deviceStatus.Text = error != null ? "手柄读取失败：" + error :
+            Selection.Id != null && !connected().Any(p => p.Id == Selection.Id) ? "所选手柄未连接，输入将保持关闭并等待重连。" :
+            connected().Count == 0 ? "未发现手柄；请通过 USB 或蓝牙连接。" : $"已连接 {connected().Count} 个手柄；列表会自动更新。";
+    }
+    private void StyleBinding(ComboBox control, bool isStick)
+    {
+        control.DrawMode = DrawMode.OwnerDrawFixed; control.ItemHeight = 32;
+        control.BackColor = Color.FromArgb(33, 39, 46); control.ForeColor = Color.White;
+        control.DrawItem += (_, e) =>
+        {
+            if (e.Index < 0) return;
+            using var background = new SolidBrush((e.State & DrawItemState.Selected) != 0 ? Color.FromArgb(47, 69, 63) : control.BackColor);
+            e.Graphics.FillRectangle(background, e.Bounds);
+            var left = e.Index == 0;
+            var prompt = isStick ? (left ? "[LS] 左摇杆 · [L3] 按下确认" : "[RS] 右摇杆 · [R3] 按下确认") : (left ? "[LT] 左扳机" : "[RT] 右扳机");
+            glyphs.Draw(e.Graphics, prompt, Family, Font, Color.White, new(e.Bounds.X + 5, e.Bounds.Y, e.Bounds.Width - 10, e.Bounds.Height), 26);
+            e.DrawFocusRectangle();
+        };
+    }
+    protected override void Dispose(bool disposing) { if (disposing) glyphs.Dispose(); base.Dispose(disposing); }
     private static Label Label(string text, float size = 10, bool bold = false) => new()
     { Text = text, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Microsoft YaHei UI", size, bold ? FontStyle.Bold : FontStyle.Regular) };
     private static Button Button(string text, string name) => new()
@@ -102,6 +181,8 @@ internal sealed class SettingsForm : Form
     private sealed class VisibilityPreview : Control
     {
         internal UserSettings Settings = new();
+        internal GamepadFamily Family;
+        private readonly ButtonGlyphs glyphs = new();
         internal VisibilityPreview() { DoubleBuffered = true; }
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -128,9 +209,23 @@ internal sealed class SettingsForm : Form
                 }
                 // DrawString preserves alpha; opaque preview text stays readable.
                 g.DrawString("效果预览", Font, text, 176, 22);
-                g.DrawString($"{Settings.StickLabel}选区 · {Settings.TriggerLabel} 确认\n{Settings.StickClickLabel} 按下摇杆", Font, text, new RectangleF(176, 53, Width - 184, 70));
+                glyphs.Draw(g, $"[{(Settings.Stick == ControlSide.Left ? "LS" : "RS")}] 选区  [{Settings.TriggerLabel}] 确认", Family, Font, Color.White, new(176, 53, Width - 184, 30), 26);
+                glyphs.Draw(g, $"[{Settings.StickClickLabel}] 按下摇杆", Family, Font, Color.White, new(176, 88, Width - 184, 30), 26);
             }
             e.Graphics.DrawImageUnscaled(surface, 0, 0);
         }
+        protected override void Dispose(bool disposing) { if (disposing) glyphs.Dispose(); base.Dispose(disposing); }
+    }
+    private sealed class PromptControl : Control
+    {
+        internal GamepadFamily Family;
+        private readonly ButtonGlyphs glyphs = new();
+        internal PromptControl() { DoubleBuffered = true; AccessibleName = "保存后，在目标文本框同时按下两枚菜单键开启输入"; }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            glyphs.Draw(e.Graphics, "设置期间输入已暂停。保存后，按 [View] + [Menu] 开启输入", Family, Font, ForeColor, new(0, 0, Width, Height), 26);
+        }
+        protected override void Dispose(bool disposing) { if (disposing) glyphs.Dispose(); base.Dispose(disposing); }
     }
 }

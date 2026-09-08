@@ -1,0 +1,33 @@
+<Project>
+  <!-- One original SVG per glyph; duplicate model copies stay out of the assembly. -->
+  <ItemGroup>
+    <SteamGlyph Include="Assets\Steam\Shared\light\svg\shared_color_button_*.svg" />
+    <SteamGlyph Include="Assets\Steam\Shared\light\svg\shared_lstick.svg" />
+    <SteamGlyph Include="Assets\Steam\Shared\light\svg\shared_rstick.svg" />
+    <SteamGlyph Include="Assets\Steam\Shared\light\svg\shared_lstick_click.svg" />
+    <SteamGlyph Include="Assets\Steam\Shared\light\svg\shared_rstick_click.svg" />
+    <SteamGlyph Include="Assets\Steam\Shared\light\svg\shared_dpad_left.svg" />
+    <SteamGlyph Include="Assets\Steam\Shared\light\svg\shared_dpad_right.svg" />
+    <SteamGlyph Include="Assets\Steam\Xbox\light\svg\xbox_lb.svg" />
+    <SteamGlyph Include="Assets\Steam\Xbox\light\svg\xbox_rb.svg" />
+    <SteamGlyph Include="Assets\Steam\Xbox\light\svg\xbox_lt.svg" />
+    <SteamGlyph Include="Assets\Steam\Xbox\light\svg\xbox_rt.svg" />
+    <SteamGlyph Include="Assets\Steam\Xbox\light\svg\xbox_button_select.svg" />
+    <SteamGlyph Include="Assets\Steam\Xbox\light\svg\xbox_button_start.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS4\light\svg\ps_color_button_*.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS4\light\svg\ps_dpad_left.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS4\light\svg\ps_dpad_right.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS4\light\svg\ps4_l1.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS4\light\svg\ps4_r1.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS4\light\svg\ps4_l2.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS4\light\svg\ps4_r2.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS4\light\svg\ps4_button_share.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS4\light\svg\ps4_button_options.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS5\light\svg\ps5_l1.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS5\light\svg\ps5_r1.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS5\light\svg\ps5_l2.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS5\light\svg\ps5_r2.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS5\light\svg\ps5_button_create.svg" />
+    <SteamGlyph Include="Assets\Steam\PlayStation\PS5\light\svg\ps5_button_options.svg" />
+  </ItemGroup>
+</Project>

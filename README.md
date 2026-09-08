@@ -2,18 +2,20 @@
 
 <img width="780" height="520" alt="PixPin_2026-09-08_16-34-28" src="https://github.com/user-attachments/assets/1daa2826-2e65-4894-bbc6-501a91aa988f" />
 
-Windows Xbox / XInput 手柄九键输入程序。启动 C# 主程序，在目标文本框按 **View + Menu**，程序记录原输入法并优先切换到 **GamePad T9**；该条目不可用时切换到 **小白 T9 输入法**。关闭手柄输入后恢复原输入法。
+Windows Xbox、PS4（DualShock 4）和 PS5（DualSense）手柄九键输入程序。启动 C# 主程序，在目标文本框同时按下两枚菜单键（Xbox：**View + Menu**；PS4：**Share + Options**；PS5：**Create + Options**）。默认直接输入模式记录原输入法并优先切换到 **GamePad T9**；该条目不可用时切换到 **小白 T9 输入法**。关闭手柄输入后恢复原输入法。也可按程序配置失焦输入或外部输入框。
 
-主程序、手柄控制、九宫格和候选面板使用 **C#**。联动方式在小白原有 **C++ TSF 组件**中加入手柄提交接口，沿用小白的输入法名称和标识。本机也保留“GamePad T9”独立输入法条目作为备用；两种方式均支持 x64 和 x86 目标程序。
+主程序、手柄控制、九宫格和候选面板使用 **C#**。联动方式在小白原有 **C++ TSF 组件**中加入手柄提交接口，沿用小白的输入法名称和标识。项目也提供“GamePad T9”独立输入法条目作为备用；两种方式均支持 x64 和 x86 目标程序。
 
 ## 开始使用
 
+以下为默认“无屏蔽操作”模式；需要让目标失焦或使用独立输入栏时，先配置下方的“程序列表”。
+
 1. 双击 [Start.cmd](Start.cmd)。程序在系统托盘运行，初始关闭手柄输入。
 2. 打开目标程序，将光标放入文本框，保持原先使用的输入法即可。
-3. 同时按 **View + Menu** 开启手柄输入，自动记录并切换输入法，也可以双击托盘图标。
-4. 置顶九宫格和候选面板出现后，用右摇杆选区，按 **RT / R3** 输入字母组，按 **A** 确认候选。
+3. 同时按两枚菜单键开启手柄输入，自动记录并切换输入法，也可以双击托盘图标。有多只手柄时，先在托盘的 **设置… → 已连接手柄** 选择设备并保存。
+4. 置顶九宫格和候选面板出现后，用右摇杆选区，按 **RT / R3**（PS：**R2 / R3**）输入字母组，按 **A**（PS：**×**）确认候选。面板使用所选设备对应的 Steam 按键图标。
 
-本机已安装两种输入组件。**更新输入组件前已打开的目标程序可能需要重新打开**，才能加载新组件；不用重新添加输入法。自动切换作用于实际获得键盘焦点的编辑控件线程，支持新版记事本中主窗口与编辑区分属不同线程的情况，不使用整个桌面范围的激活。
+需安装至少一种输入组件。本机当前使用小白联动入口，备用独立条目已于 2026-09-08 取消注册。**更新输入组件前已打开的目标程序可能需要重新打开**，才能加载新组件；不用重新添加输入法。自动切换作用于实际获得键盘焦点的编辑控件线程，支持新版记事本中主窗口与编辑区分属不同线程的情况，不使用整个桌面范围的激活。
 
 面板不抢文本框焦点，标题区域可拖动，九宫格和候选也可点击。再次按 View + Menu、长按 B、面板右上角 ×、托盘关闭输入、手柄断开或正常退出程序，都会关闭输入并恢复先前的输入法。短按 B 只关闭候选，不恢复输入法。重连手柄后需再次开启。
 
@@ -21,9 +23,44 @@ Windows Xbox / XInput 手柄九键输入程序。启动 C# 主程序，在目标
 
 首次开启时，只有输入法切换成功、焦点仍匹配且该编辑线程的输入组件就绪，才显示面板。记录、切换或就绪检查失败时，程序会尝试恢复并在托盘提示原因。请确认光标位于可编辑区域，并先完成或取消实体键盘正在输入的拼音。
 
+## 程序列表与输入方式
+
+从托盘菜单 **程序列表…** 或 **设置 → 程序列表…** 打开。也可以运行 `artifacts/app/GamePadT9.exe --programs`。左侧固定包含“全局配置”，支持浏览 EXE 或从运行中的程序添加独立配置。按程序完整路径匹配（忽略大小写），独立配置优先；移除独立配置后恢复继承全局。程序更新改变 EXE 路径时需要重新添加。
+
+每个配置的“输入方式”使用单选下拉框：
+
+| 选项 | 行为 |
+|---|---|
+| **无屏蔽操作** | 默认值，保留原来的不抢焦点面板，直接向目标输入。 |
+| **游戏失去焦点** | 只显示九宫格和候选面板，由该面板获得焦点，不显示额外输入窗口；确认候选后等待手柄按键释放、摇杆回中，切回原文本框填入，收到提交回执后再让输入面板获得焦点。数字输入和删除已上屏文字也经过切焦流程。 |
+| **使用外部输入框** | 面板上方显示可编辑输入栏并获得焦点；选词、数字、退格均在输入栏中完成。完成时再统一处理整段文字。 |
+
+只有选择“使用外部输入框”时，才启用“外部输入框完成操作”下拉框：
+
+| 完成操作（只能选择一个） | 行为 |
+|---|---|
+| **完成输入后复制到剪切板** | 复制整段文字并关闭输入、返回原程序，不自动填入。此模式不要求目标提供 TSF 文本接口，也不切换目标的输入法。 |
+| **完成输入后填入至目标程序** | 恢复原文本框焦点，切换所需输入法，通过现有 TSF 通道提交整段文字，然后恢复原输入法。不额外发送 Enter。 |
+
+外部输入框中，**短按 A（PS：×）在松开时选词；长按 1 秒完成输入**。若仍有候选，长按会先确认当前高亮候选；有剩余编码时继续选词，不丢弃未完成的部分。长按不会再触发一次短按，返回目标前等待按键释放。窗口也提供带 Steam SVG 图标的完成按钮。
+
+短按 B 关闭候选并保留输入栏；长按 B、再次按组合键或关闭窗口会保留草稿。草稿按程序暂存在本次主程序进程内，重开输入可继续，退出主程序后不保留。可使用“复制保留的文字”另行保存，或用“清空草稿”明确放弃。提交结果不确定时停止重复提交；先核对目标，复制或清空保留的文字后继续。
+
+“游戏失去焦点”模式提交失败时，文字仍会保留；右键九宫格面板可选择“复制保留的文字”或“清空草稿”，不会弹出外部输入窗口。
+
+配置保存在 `program-profiles.json`，与手柄及可见度设置分开保存。默认全局为“无屏蔽操作”，完成操作默认为“填入至目标程序”。配置在开启输入时确定，本轮目标不会随输入窗口获得焦点而改变。手动切到其他窗口时暂停输入，不自动向新窗口填字。
+
+**失焦不是驱动级屏蔽**：允许后台手柄输入的游戏仍可能响应，开启组合键和切焦瞬间也可能被游戏读取。独占全屏游戏可能最小化或关闭聊天框；窗口化、无边框及原文本框能恢复焦点的程序更适合使用。输入栏保持实体 PS / Xbox 连接，不创建虚拟手柄。
+
+前台切换首先使用 Windows 窗口 API；必要时，复用现有短时目标线程辅助组件，让仍处于前台的目标进程调用 `AllowSetForegroundWindow`。只授予本程序，不改变全局焦点策略；辅助组件不拦截手柄 API。目标拒绝辅助组件或前台切换时，面板提示点击输入窗口后继续。填入前重新核对原窗口、可识别的焦点控件及 TSF 通道；失败保留文字。
+
+单次自动填入沿用 TSF 接口的 **1024 个 UTF-16 单元**上限，超过时保留草稿供缩短或复制，不分块冒险重复提交。模拟数字或兼容 Backspace 仍依赖目标实际处理按键；逐次切焦模式不提供对任意游戏的输入保证。
+
+截图：[程序列表](artifacts/program-profiles-window.png)、[外部输入栏](artifacts/external-input-window.png)。
+
 ## 备用输入法条目
 
-“GamePad T9”已注册到 Windows 输入法列表，现在是自动开启时的优先入口；没有该条目或该条目未启用时，回退到小白 T9。九宫格、候选和所有手柄按键在两种方式下相同，不需要另外选择运行模式。
+“GamePad T9”注册到 Windows 输入法列表后，是自动开启时的优先入口；没有该条目或该条目未启用时，回退到小白 T9。九宫格、候选和所有手柄按键在两种方式下相同，不需要另外选择运行模式。
 
 独立入口使用单独的 TSF 文本组件，不依赖小白联动组件或小白服务端；C# 主程序仍需加载已安装的原版 `rime.dll` 和本地方案。它适合在小白联动入口不可用时继续输入，不是传统的实体键盘拼音输入法。两种入口切换时，未提交的编码会清除。
 
@@ -47,12 +84,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/register-standalone.
 
 ## 设置
 
-点击输入面板右上方的 **设置**，或在托盘图标菜单选择 **设置…**。摇杆和扳机可以独立选择，界面提示会跟随更新。
+点击输入面板右上方的 **设置**，或在托盘图标菜单选择 **设置…**。可选择已连接手柄，摇杆和扳机可以独立选择，界面按键图标会跟随手柄类型和绑定更新。
 
 | 设置项 | 默认值 | 可调整范围 |
 |---|---|---|
+| 已连接手柄 | 自动选择，保持当前手柄 | 当前识别的设备，支持热插拔刷新 |
 | 选择九宫格区域 | 右摇杆 | 左摇杆 / 右摇杆 |
-| 确认区域输入 | 右扳机 RT | 左扳机 LT / 右扳机 RT |
+| 确认区域输入 | 右扳机 RT / R2 | 左扳机 LT / L2 或右扳机 RT / R2 |
 | 面板背景可见度 | 50% | 0–100% |
 | 九宫格可见度 | 80% | 0–100% |
 | 高亮区域可见度 | 90% | 0–100%，用于九格及候选高亮 |
@@ -67,9 +105,31 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/register-standalone.
 
 截图：[设置窗口](artifacts/settings-window.png)、[透明面板效果](artifacts/overlay-transparency.png)。
 
+自动选择会保留当前已连接设备，新接入的手柄不会抢占；当前设备断开后，输入先关闭，再选择可用设备，需重新按组合键开启。手动指定设备时只接收该设备的输入：断开后保留“未连接”条目并等待重连，不改用其他手柄。保存时优先记住设备序列号的哈希，否则使用设备路径或槽位；更换 USB 接口、连接方式或驱动后，如果系统提供的身份发生变化，需要重新选择。系统未提供唯一身份的同型号设备只能在本次连接期间区分。
+
+手柄通过 SDL3 直接读取，PS4 / PS5 支持 USB 和蓝牙路径，无需通过 Steam 启动本程序。若 Steam Input、DS4Windows 或设备隐藏工具把 PS 手柄仅暴露为虚拟 Xbox 设备，列表与图标会显示系统可见的 Xbox 身份；要显示 PS 图标，请选择可直接读取的 PS 设备。图标来自本机 Steam 客户端并已嵌入程序，运行时不要求 Steam 在线或运行。来源和许可证见 [第三方说明](THIRD-PARTY-NOTICES.md)。
+
 ## 按键和布局
 
+主界面与设置窗口使用 Steam 原始 SVG 按键图标，按实际显示尺寸绘制矢量路径，保留原有配色和透明背景，支持系统缩放。图标会随所选 Xbox、PS4、PS5 手柄切换。
+
+Steam 的完整图标素材库已按 Xbox、PS3 / PS4 / PS5、任天堂系列、Steam Controller 和 Steam Controller 2015 分类存放在 [`src/GamePadT9/Assets/Steam`](src/GamePadT9/Assets/Steam/README.md)。各分类仅保留现有主题的 SVG 原图；具体目录、共用图标及来源校验见该目录的说明和 `manifest.json`。素材收集不改变当前程序的手柄支持范围。
+
 下表为默认的右摇杆与右扳机配置。修改设置后，RT、R3 分别对应所选扳机和摇杆按下动作。
+
+PS 手柄对应关系如下，操作逻辑相同，程序内显示 Steam 图标：
+
+| Xbox | PS4 / PS5 | 功能 |
+|---|---|---|
+| A | ×（叉号） | 确认候选 |
+| B | ○（圆圈） | 短按关闭候选，长按 1 秒关闭输入 |
+| X | □（方块） | 退格 |
+| Y | △（三角） | 切换九键 / 数字 |
+| LB / RB | L1 / R1 | 上下选择候选 |
+| LT / RT | L2 / R2 | 所选扳机确认区域输入 |
+| View + Menu | PS4：Share + Options；PS5：Create + Options | 开启 / 关闭输入 |
+
+左右摇杆、按下摇杆和十字键左右的操作相同。触摸板、PS 键、静音键未分配输入动作。
 
 | 按键 | 九键模式 | 数字模式 |
 |---|---|---|
@@ -111,7 +171,7 @@ Y 切换到数字模式会暂存九键编码，在同一文本框返回九键模
 
 ## 输入方式
 
-手柄 → C# 控制器 → 原版 librime API → C# 候选面板 → 当前所选入口的 TSF 编辑会话 → 当前文本框。
+手柄 → SDL3 设备读取 → C# 控制器 → 原版 librime API → C# 候选面板 → 当前所选入口的 TSF 编辑会话 → 当前文本框。
 
 自动切换通过 `GetGUIThreadInfo().hwndFocus` 找到实际接收键盘输入的控件，再使用一个短时、指定线程的 Windows 消息钩子，在该控件所属线程中调用 TSF API，读取原输入法的完整标识（或英文等键盘布局句柄），并执行切换和恢复。辅助组件在目标线程再次检查焦点；C# 只连接同一输入线程的 TSF 端点。32 位和 64 位目标使用各自的辅助组件。它不是键盘钩子，不记录按键，也不模拟 Win + Space、Alt + Shift 等快捷键；请求完成即卸下钩子。
 
@@ -177,13 +237,32 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Editor -In
 
 构建产物使用带哈希的目录，当前路径记录在 `artifacts/xiaobai-x64-path.txt` 和 `artifacts/xiaobai-x86-path.txt`。`build.ps1` 同时构建 x64 / x86 输入法切换辅助组件，路径记录在 `artifacts/input-method-<架构>-path.txt`；这些辅助组件无需注册。只改 C# 时可以运行 `scripts/build.ps1 -SkipXiaobai -SkipInputMethodControl`。
 
+项目包含固定版本 SDL 3.4.16 的 x86 DLL，构建时自动复制到主程序旁边。Steam 图标按 `SteamGlyphs.props` 只嵌入当前界面使用的 34 个 SVG，由 SVG.NET 3.4.8 绘制；首次构建需要从 NuGet 还原 `Svg` 及其 ExCSS 依赖。升级本次手柄和图标功能只需重新构建 C# 主程序，无需重新注册输入法组件。
+
+本次新增焦点模式还更新了 x64 / x86 输入法辅助组件；升级请运行 `scripts/build.ps1 -SkipXiaobai`，包含主程序和辅助组件构建，无需重新注册输入法。随后可以用以下检查验证程序配置、外部草稿、长按完成和逐次切焦：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Focus
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Focus -Architecture x86
+```
+
+检查只操作自己创建的测试文本框，使用临时程序配置；验证真实前台焦点、TSF 文字、数字与退格、原输入法恢复、只读和已关闭目标、取消待提交操作及草稿保留。复制检查会暂时写入测试文字，并尝试恢复预先读取的剪切板内容。
+
+多手柄与 Steam 图标专项检查：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Controllers
+```
+
+此检查使用 SDL 进程内虚拟 Xbox、PS4、PS5 设备，经生产读取层验证全部输入动作、九格方向、左右控制、按住保护、设备隔离、断开重连、设置选择与保存，以及三套图标。虚拟设备只存在于测试进程，不安装系统虚拟驱动。报告另列实际检测到的硬件；虚拟测试不替代 PS 真机 USB / 蓝牙验证。图标预览：[Xbox](artifacts/controller-Xbox-t9.png)、[PS4](artifacts/controller-PS4-t9.png)、[PS5](artifacts/controller-PS5-t9.png)。
+
 界面设置、控制映射及透明效果检查：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Settings
 ```
 
-该检查覆盖四种左右摇杆 / 扳机组合、未选控制不触发输入、切换配置时的按住保护、真实设置控件保存 / 取消 / 恢复默认、配置加载，以及叠加在独立测试窗口上的实际屏幕像素。检查使用临时配置，不更改用户保存的设置。
+该检查覆盖四种左右摇杆 / 扳机组合、未选控制不触发输入、切换配置时的按住保护、真实设置控件保存 / 取消 / 恢复默认、配置加载，以及叠加在独立测试窗口上的实际屏幕像素。同时检查 Xbox、PS4、PS5 全部界面 SVG 在 100%、125%、150%、200% 缩放下的绘制、透明背景、边界及绘图状态恢复，并核对原始颜色和嵌入资源。检查使用临时配置，不更改用户保存的设置。
 
 自动切换和恢复的专项检查：
 
@@ -211,11 +290,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace 
 
 ## 验证结果
 
-2026-09-08，Release 构建和 18 项基础检查通过，检测到 XInput 手柄槽位 0。两种架构的隔离测试、实际安装测试均通过：
+2026-09-09：Release 构建零警告、零错误；x64 / x86 程序配置与焦点专项检查、91 项手柄检查、45 项设置与 SVG 检查、18 项基础检查和记事本回归均通过。新模式验证使用自建 WPF 编辑器，尚未在具体游戏中验证失焦后的手柄响应。专项报告：[x64](artifacts/focus-verification.json)、[x86](artifacts/focus-x86-verification.json)。
+
+2026-09-08，Release 构建、18 项基础检查、91 项多手柄检查、45 项设置与 SVG 检查通过；切换 SVG 后重新通过后两项检查。新版记事本此前通过完整输入及恢复检查，使用小白回退入口。本次 SDL 读取层检测到 Xbox 360 Controller；PS4 / PS5 使用进程内虚拟设备验证，尚未连接真机复测。两种架构的输入法隔离测试、实际安装测试已有通过记录：
 
 | 测试 | 报告 |
 |---|---|
 | 基础控制器和原版引擎 | [self-test.json](artifacts/self-test.json) |
+| SDL 多手柄、选择重连与 Steam 图标 | [controller-verification.json](artifacts/controller-verification.json) |
 | 设置、左右控制组合及真实透明合成 | [settings-verification.json](artifacts/settings-verification.json) |
 | x64 隔离组件 | [editor-isolated-verification.json](artifacts/editor-isolated-verification.json) |
 | x86 隔离组件 | [editor-x86-isolated-verification.json](artifacts/editor-x86-isolated-verification.json) |
@@ -235,7 +317,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace 
 
 测试覆盖置顶九宫格不抢焦点、可见候选、候选移动和翻页、A 上屏“你好”、数字 `1234567890`、Y 保留编码、X 删除已上屏字符和完整 UTF-16 代理对表情、标点上屏、B 保留九宫格、关闭后隐藏及过期焦点拒绝。
 
-端到端检查使用合成 XInput 状态驱动生产 `Controller` 和 `InputSession`，通过 TSF 编辑回执和 UI Automation 独立读取文档确认结果。UI Automation 用于定位、聚焦、读取及关闭测试标签页；输入文字使用生产输入路径。完整 TSF 文档的 WPF 检查中，每组模拟键盘事件恰为 20 次，全部来自数字 0–9；Backspace 兼容专项检查中，三次上屏退格产生 6 次键盘事件。候选编码的顶部 123 显示也已验证。本轮自动化检查不等同于逐项实体手柄体验测试。
+端到端检查使用归一化手柄状态驱动生产 `Controller` 和 `InputSession`，通过 TSF 编辑回执和 UI Automation 独立读取文档确认结果。UI Automation 用于定位、聚焦、读取及关闭测试标签页；输入文字使用生产输入路径。完整 TSF 文档的 WPF 检查中，每组模拟键盘事件恰为 20 次，全部来自数字 0–9；Backspace 兼容专项检查中，三次上屏退格产生 6 次键盘事件。候选编码的顶部 123 显示也已验证。本轮自动化检查不等同于逐项实体手柄体验测试。
 
 截图：[九键候选](artifacts/overlay-t9.png)、[数字模式](artifacts/overlay-numeric.png)。
 
@@ -258,8 +340,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace 
 | 文件 | 职责 |
 |---|---|
 | `src/GamePadT9/GamePadApplication.cs` | 托盘、后台采样、连接状态与窗口生命周期 |
-| `src/GamePadT9/Controller.cs` | 右摇杆分区、边沿、长按和连发 |
+| `src/GamePadT9/Controller.cs` | 所选摇杆分区、边沿、长按和连发 |
+| `src/GamePadT9/GamepadDevices.cs` | SDL3 读取、Xbox / PS 识别、设备选择和热插拔 |
+| `src/GamePadT9/ButtonGlyphs.cs` | Steam SVG 加载、缓存及矢量按键提示绘制 |
+| `src/GamePadT9/SteamGlyphs.props` | 界面使用的 34 个 Steam SVG 嵌入资源清单 |
+| `src/GamePadT9/ControllerValidation.cs` | 通过 SDL 虚拟设备验证多手柄读取与选择 |
 | `src/GamePadT9/InputSession.cs` | 模式、候选、焦点绑定与提交协调 |
+| `src/GamePadT9/FocusedInputSession.cs` | 外部编辑栏、目标焦点切换、完成及草稿保留 |
+| `src/GamePadT9/ProgramProfiles.cs` | 程序独立配置、全局回退和持久化 |
+| `src/GamePadT9/ProgramProfilesForm.cs` | 程序列表与输入方式、完成操作下拉框 |
+| `src/GamePadT9/FocusValidation.cs` | 程序配置、长按完成及真实焦点与文本验证 |
 | `src/GamePadT9/MainForm.cs` | 不抢焦点的置顶九宫格与候选绘制 |
 | `src/GamePadT9/RimeEngine.cs` | 原版 librime C ABI 与独立会话 |
 | `src/GamePadT9/NumericInput.cs` | 数字模式限定的小键盘 0–9 事件 |
@@ -270,7 +360,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace 
 | `src/GamePadT9/SettingsForm.cs` | 设置窗口与可见度实时预览 |
 | `src/GamePadT9/LayeredWindow.cs` | 独立区域可见度的透明窗口合成 |
 | `src/GamePadT9/SettingsValidation.cs` | 控制映射、设置持久化及实际屏幕像素验证 |
-| `native/InputMethodControl.cpp` | 在目标线程读取及切换 TSF 输入法的短时消息钩子 |
+| `native/InputMethodControl.cpp` | 在目标线程读取及切换 TSF 输入法、授予面板前台权限的短时消息钩子 |
 | `scripts/build-input-method.ps1` | 构建两种架构的输入法切换辅助组件 |
 | `src/GamePadT9/InputMethodValidation.cs` | 自动切换和恢复的端到端检查 |
 | `native/Bridge.cpp` | TSF 插入、退格编辑会话及数字放行接口 |

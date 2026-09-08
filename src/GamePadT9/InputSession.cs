@@ -1,25 +1,53 @@
 namespace GamePadT9;
 
 // One coordinator shared by the interactive host and end-to-end UI tests.
-internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? inputMethods = null)
+internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? inputMethods = null) : IDisposable
 {
+    private FocusedInputSession? focused;
+    private readonly Dictionary<string, string> drafts = new(StringComparer.OrdinalIgnoreCase);
+    internal Func<(InputBehavior Behavior, InputWindow Window, string Key)>? FocusConfiguration { get; set; }
+    internal Func<bool> ControlsReleased { get; set; } = () => true;
+    internal Func<Rectangle> OverlayBounds { get; set; } = () => new(100, 300, 780, 520);
+    internal Form? FocusOverlay { get; set; }
+    internal FocusedInputSession? Focused => focused;
+    internal bool ExternalInput => focused?.External == true;
+    private bool enabled, busy;
+    private InputMode mode;
+    private string message = "同时按下两枚菜单键开启输入", numberHistory = "";
     private readonly TsfClient tsf = new();
     private Target? boundTarget;
     private bool disableAfterCommit;
     private bool submissionUnconfirmed;
     private readonly SymbolMenu symbols = new();
-    public bool Enabled { get; private set; }
-    public bool Busy { get; private set; }
+    public bool Enabled { get => focused?.Enabled ?? enabled; private set => enabled = value; }
+    public bool Busy { get => focused?.Busy ?? busy; private set => busy = value; }
     internal UserSettings Preferences { get; set; } = new();
-    private string NumericHint => $"{Preferences.TriggerLabel} 输入 1–9 · {Preferences.StickClickLabel} 输入 0";
-    public InputMode Mode { get; private set; }
-    public EngineView View => Mode == InputMode.T9 ? (symbols.Visible ? symbols.View : engine.View) : EngineView.Empty;
-    public string Message { get; private set; } = "View + Menu 开启输入";
-    public string NumberHistory { get; private set; } = "";
+    private string NumericHint => "数字模式：扳机输入 1–9，按下所选摇杆输入 0";
+    public InputMode Mode { get => focused?.Mode ?? mode; private set => mode = value; }
+    public EngineView View => focused?.View ?? (Mode == InputMode.T9 ? (symbols.Visible ? symbols.View : engine.View) : EngineView.Empty);
+    public string Message { get => focused?.Message ?? message; private set => message = value; }
+    public string NumberHistory { get => focused?.NumberHistory ?? numberHistory; private set => numberHistory = value; }
     public event Action? Changed;
     public event Action<string>? Error;
     public async Task Enable(bool enabled)
     {
+        if (enabled && !Enabled && !Busy && FocusConfiguration != null)
+        {
+            focused?.Dispose(); focused = null;
+            try
+            {
+                var config = FocusConfiguration();
+                if (config.Behavior.Mode != InputFocusMode.None)
+                {
+                    if (inputMethods == null) throw new InvalidOperationException("缺少输入法切换组件。");
+                    focused = new(engine, inputMethods, config.Window, config.Behavior, ControlsReleased, OverlayBounds, FocusOverlay,
+                        drafts.GetValueOrDefault(config.Key, ""), text => drafts[config.Key] = text);
+                    focused.Changed += () => Changed?.Invoke();
+                }
+            }
+            catch (Exception ex) { Message = ex.Message; Error?.Invoke(Message); Changed?.Invoke(); return; }
+        }
+        if (focused != null) { await focused.Enable(enabled); return; }
         if (Busy) { if (!enabled) disableAfterCommit = true; return; }
         if (Enabled == enabled) return;
         Busy = true;
@@ -28,7 +56,7 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
             ClearComposition(); NumberHistory = "";
             if (enabled)
             {
-                Message = inputMethods == null ? $"{Preferences.StickLabel}选区 · {Preferences.TriggerLabel} 输入 · Y 切换模式" : await inputMethods.StartAsync();
+                Message = inputMethods == null ? $"{Preferences.StickLabel}选择区域，按所选扳机输入" : await inputMethods.StartAsync();
                 Enabled = true;
             }
             else
@@ -53,6 +81,7 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
     }
     public async Task CheckFocus()
     {
+        if (focused != null) { await focused.CheckFocus(); return; }
         if (!Enabled || Busy || engine.PendingCommit.Length != 0 || submissionUnconfirmed) return;
         if (inputMethods?.NeedsForegroundSwitch == true)
         {
@@ -71,6 +100,7 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
     }
     public async Task ShutdownAsync()
     {
+        if (focused != null) { await focused.ShutdownAsync(); return; }
         await Enable(false);
         while (Busy) await Task.Delay(20);
         await Enable(false);
@@ -82,15 +112,17 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
     {
         if (action.Action == PadAction.Toggle) { await Enable(!Enabled && !Busy); return; }
         if (action.Action == PadAction.Disable) { await Enable(false); return; }
+        if (focused != null) { await focused.Handle(action, candidateIndex); return; }
+        if (action.Action == PadAction.Complete) return;
         if (!Enabled || Busy) return;
         if (action.Action == PadAction.Cancel)
         { ClearComposition(); Message = "候选已关闭"; Changed?.Invoke(); return; }
         if (engine.PendingCommit.Length != 0 || submissionUnconfirmed)
-        { Message = "请检查上次提交结果，按 B 清除后继续"; Changed?.Invoke(); return; }
+        { Message = "请检查上次提交结果，关闭候选后继续"; Changed?.Invoke(); return; }
         if (action.Action == PadAction.SwitchMode)
         {
             await CheckFocus(); Mode = Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9;
-            Message = Mode == InputMode.Numeric ? NumericHint : "九键输入 · A 确认高亮候选";
+            Message = Mode == InputMode.Numeric ? NumericHint : "九键模式：请选择字母组或确认高亮候选";
             Changed?.Invoke(); return;
         }
         try
@@ -126,7 +158,7 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
                 }
             }
             if (Mode == InputMode.T9 && action.Action == PadAction.Region && action.Region == 0 && engine.View.Preedit.Length == 0)
-            { boundTarget = target; symbols.Open(); Message = "A 输入标点 · LB / RB 选择 · 十字键左右翻页"; return; }
+            { boundTarget = target; symbols.Open(); Message = "请选择标点符号"; return; }
             if (Mode == InputMode.T9 && action.Action == PadAction.Region)
             { boundTarget = target; engine.InputRegion(action.Region); }
             else if (action.Action == PadAction.Backspace)
@@ -153,7 +185,7 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
                     case PadAction.PageNext: engine.Process(0xFF56); break;
                 }
             }
-            Message = Mode == InputMode.T9 ? "A 选词 · LB / RB 翻选 · 十字键左右翻页" : NumericHint;
+            Message = Mode == InputMode.T9 ? "请选择候选词，可继续选字母组或翻页" : NumericHint;
             // Render candidates before waiting for an asynchronous edit session.
             Changed?.Invoke();
             if (engine.PendingCommit.Length > 0 && boundTarget is Target commitTarget)
@@ -174,4 +206,5 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
             Changed?.Invoke();
         }
     }
+    public void Dispose() { focused?.Dispose(); }
 }

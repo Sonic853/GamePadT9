@@ -24,6 +24,8 @@ struct Profile {
 struct Request {
     DWORD magic, size, process, thread, operation;
     HWND window;
+    HWND focusDestination;
+    DWORD focusProcess;
     Profile desired, before, after;
     HRESULT result;
     LONG complete;
@@ -65,12 +67,22 @@ static bool Available(ITfInputProcessorProfileMgr* manager, const GUID& clsid, c
 }
 static HRESULT Execute(Request& request) {
     if (request.process != GetCurrentProcessId() || request.thread != GetCurrentThreadId()) return E_ACCESSDENIED;
-    if (request.operation == 1 || request.operation == 3) {
+    if (request.operation == 1 || request.operation == 3 || request.operation == 4) {
         GUITHREADINFO gui{sizeof(GUITHREADINFO)};
         if (GetAncestor(request.window, GA_ROOT) != GetForegroundWindow() ||
             !GetGUIThreadInfo(0, &gui) || gui.hwndFocus != request.window ||
             (gui.flags & (GUI_INMENUMODE | GUI_INMOVESIZE | GUI_POPUPMENUMODE | GUI_SYSTEMMENUMODE)))
             return HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
+    }
+    // A foreground process may explicitly allow the input panel to become foreground.
+    // This does not switch an IME, alter device input, or bypass foreground policy.
+    if (request.operation == 4) {
+        DWORD destinationProcess = 0;
+        if (!IsWindowVisible(request.focusDestination) ||
+            !GetWindowThreadProcessId(request.focusDestination, &destinationProcess) ||
+            destinationProcess != request.focusProcess || destinationProcess == request.process)
+            return E_INVALIDARG;
+        return AllowSetForegroundWindow(destinationProcess) ? S_OK : E_ACCESSDENIED;
     }
     ComPtr<ITfInputProcessorProfileMgr> manager;
     auto hr = CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&manager));
@@ -101,7 +113,7 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK InputMethodHook(int code, WPAR
                 auto request = static_cast<Request*>(MapViewOfFile(mapping, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, sizeof(Request)));
                 if (request) {
                     if (request->magic == Magic && request->size == sizeof(Request) && request->window == message->hwnd &&
-                        request->operation <= 3 && !request->complete) {
+                        request->operation <= 4 && !request->complete) {
                         executing = true;
                         try { request->result = Execute(*request); } catch (...) { request->result = E_FAIL; }
                         InterlockedExchange(&request->complete, 1);
@@ -128,14 +140,20 @@ static void PrintProfile(const Profile& profile) {
         profile.type, profile.language, clsid + 1, guid + 1, static_cast<unsigned long long>(profile.keyboard));
 }
 int wmain(int argc, wchar_t** argv) {
-    if (argc != 5 && argc != 10) return 2;
+    if (argc != 5 && argc != 7 && argc != 10) return 2;
     Request request{};
     request.magic = Magic; request.size = sizeof(request);
     request.operation = std::wstring(argv[1]) == L"query" ? 0 : std::wstring(argv[1]) == L"switch" ? 1 :
-        std::wstring(argv[1]) == L"switch-fallback" ? 3 : 2; // Used only by the fallback integration check.
+        std::wstring(argv[1]) == L"switch-fallback" ? 3 : std::wstring(argv[1]) == L"grant-focus" ? 4 : 2;
     request.window = reinterpret_cast<HWND>(static_cast<UINT_PTR>(_wcstoui64(argv[2], nullptr, 16)));
     request.process = wcstoul(argv[3], nullptr, 10); request.thread = wcstoul(argv[4], nullptr, 10);
     request.result = E_FAIL;
+    if (request.operation == 4) {
+        if (argc != 7) return 2;
+        request.focusDestination = reinterpret_cast<HWND>(static_cast<UINT_PTR>(_wcstoui64(argv[5], nullptr, 16)));
+        request.focusProcess = wcstoul(argv[6], nullptr, 10);
+    }
+    else if (request.operation != 2 && argc != 5) return 2;
     if (request.operation == 2) {
         if (argc != 10 || std::wstring(argv[1]) != L"restore") return 2;
         request.desired.type = wcstoul(argv[5], nullptr, 10);

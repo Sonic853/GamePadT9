@@ -111,10 +111,10 @@ internal sealed class InputMethodSwitcher(string root, bool simulateMissingStand
         lastAttempt = null;
         if (failures.Count != 0) throw new InvalidOperationException(string.Join("；", failures.Distinct()));
     }
-    internal async Task<InputMethodResult> RunAsync(InputWindow window, string operation, InputProfile? profile = null)
+    internal async Task<InputMethodResult> RunAsync(InputWindow window, string operation, InputProfile? profile = null, nint focusDestination = 0)
     {
         if (!window.IsAlive) throw new InvalidOperationException("目标窗口已关闭或变化。");
-        if (operation is "switch" or "switch-fallback" && Foreground() != window)
+        if (operation is "switch" or "switch-fallback" or "grant-focus" && Foreground() != window)
             throw new InvalidOperationException("目标输入焦点已变化，未切换输入法。");
         using var target = Process.GetProcessById((int)window.Process);
         if (!IsWow64Process2(target.Handle, out var processMachine, out var nativeMachine)) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -127,6 +127,8 @@ internal sealed class InputMethodSwitcher(string root, bool simulateMissingStand
             RedirectStandardOutput = true, RedirectStandardError = true
         };
         foreach (var arg in new[] { operation, window.Handle.ToString("X"), window.Process.ToString(), window.Thread.ToString() }) info.ArgumentList.Add(arg);
+        if (operation == "grant-focus")
+        { info.ArgumentList.Add(focusDestination.ToString("X")); info.ArgumentList.Add(Environment.ProcessId.ToString()); }
         if (profile != null)
             foreach (var arg in new[] { profile.Type.ToString(), profile.Language.ToString(), profile.Clsid.ToString("B"), profile.Profile.ToString("B"), profile.Keyboard }) info.ArgumentList.Add(arg);
         using var process = Process.Start(info) ?? throw new IOException("无法启动输入法切换组件。");

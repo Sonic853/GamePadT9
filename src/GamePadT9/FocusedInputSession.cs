@@ -1,0 +1,426 @@
+using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Windows.Automation;
+
+namespace GamePadT9;
+
+internal sealed class FocusedInputSession : IDisposable
+{
+    private readonly RimeEngine engine;
+    private readonly InputMethodSwitcher inputMethods;
+    private readonly InputWindow original;
+    private readonly int[]? originalControl;
+    private readonly InputBehavior behavior;
+    private readonly Func<bool> neutral;
+    private readonly Func<Rectangle> overlayBounds;
+    private readonly Action<string> saveDraft;
+    private readonly TsfClient tsf = new();
+    private readonly SymbolMenu symbols = new();
+    private readonly FocusInputForm form;
+    private readonly Form focusSurface;
+    private CancellationTokenSource? operation;
+    private bool closing, uncertain, recoveryRequired, disposed, shuttingDown;
+    public bool Enabled { get; private set; }
+    public bool Busy { get; private set; }
+    public InputMode Mode { get; private set; }
+    public EngineView View => Mode == InputMode.T9 ? (symbols.Visible ? symbols.View : engine.View) : EngineView.Empty;
+    public string Message { get; private set; } = "";
+    public string NumberHistory { get; private set; } = "";
+    internal bool External => behavior.Mode == InputFocusMode.External;
+    internal bool OwnsFocus => focusSurface.IsHandleCreated && TsfClient.GetForegroundWindow() == focusSurface.Handle;
+    internal bool HasRetainedText => RecoveryText().Length > 0;
+    internal FocusInputForm Form => form;
+    internal string Draft => form.Editor.Text;
+    internal event Action? Changed;
+    internal FocusedInputSession(RimeEngine engine, InputMethodSwitcher inputMethods, InputWindow original, InputBehavior behavior,
+        Func<bool> neutral, Func<Rectangle> overlayBounds, Form? overlay, string draft, Action<string> saveDraft)
+    {
+        this.engine = engine; this.inputMethods = inputMethods; this.original = original; this.behavior = behavior;
+        this.neutral = neutral; this.overlayBounds = overlayBounds; this.saveDraft = saveDraft;
+        try { originalControl = AutomationElement.FocusedElement?.GetRuntimeId(); }
+        catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException or COMException) { }
+        if (!External && overlay == null) throw new InvalidOperationException("缺少九宫格输入面板。");
+        form = new FocusInputForm(External, behavior.Completion, System.IO.Path.GetFileName(ProgramProfiles.Executable(original)) ?? "目标程序");
+        focusSurface = External ? form : overlay!;
+        form.Editor.Text = draft; form.Editor.SelectionStart = draft.Length;
+        if (!External && draft.Length > 0) { pendingText = draft; recoveryRequired = true; }
+        form.Editor.TextChanged += (_, _) => { if (External) saveDraft(Draft); };
+        form.CompleteRequested += async () => await Handle(new(PadAction.Complete));
+        form.CancelRequested += async () => await Enable(false);
+        form.ClearRequested += ClearRetainedText;
+        form.CopyRequested += async () => await CopyRetainedTextAsync();
+        form.Activated += (_, _) => { if (Enabled && !Busy) { Message = "输入已就绪"; Notify(); } };
+    }
+    internal void ClearRetainedText()
+    {
+        if (Busy) return;
+        engine.Clear(); symbols.Close(); pendingText = ""; recoveryRequired = uncertain = false;
+        form.Editor.Clear(); saveDraft(""); Message = "草稿已清空，可以重新输入"; Notify();
+    }
+    internal async Task CopyRetainedTextAsync()
+    {
+        if (Busy) return;
+        try { await CopyAsync(External ? Draft : RecoveryText(), CancellationToken.None); Message = "已复制保留的文字，请核对目标后再操作"; }
+        catch (Exception ex) { Message = ex.Message; }
+        Notify();
+    }
+    internal async Task Enable(bool enabled)
+    {
+        if (Busy) { if (!enabled) { closing = true; operation?.Cancel(); } return; }
+        if (Enabled == enabled) return;
+        Busy = true;
+        try
+        {
+            if (enabled)
+            {
+                engine.Clear(); symbols.Close();
+                if (!original.IsAlive || InputMethodSwitcher.Foreground() != original) throw new InvalidOperationException("原目标焦点已变化，请重新开启输入。");
+                if (!External) await inputMethods.StartAsync();
+                Enabled = true; Notify();
+                if (External) { form.PlaceAbove(overlayBounds()); form.Show(); }
+                var focused = await FocusPanelAsync();
+                Message = focused ? (External ? "在输入栏编辑，长按 A 完成输入" : "选词后自动切回目标填入，再返回此面板") : "未能获得焦点，请点击输入面板后继续";
+            }
+            else await CloseCoreAsync();
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+            if (!Enabled) { form.Hide(); await RestoreProfileAsync(); }
+        }
+        finally { Busy = false; Notify(); if (closing && Enabled) { closing = false; await Enable(false); } }
+    }
+    internal Task CheckFocus()
+    {
+        if (Enabled && !Busy && !OwnsFocus && Message != "输入已暂停：请返回输入面板继续")
+        { Message = "输入已暂停：请返回输入面板继续"; Notify(); }
+        return Task.CompletedTask;
+    }
+    internal async Task ShutdownAsync()
+    {
+        shuttingDown = true;
+        closing = true; operation?.Cancel();
+        while (Busy) await Task.Delay(20);
+        closing = false;
+        await CloseCoreAsync(waitForRelease: false);
+    }
+    private void Notify()
+    {
+        form.Status.Text = Message; form.Editor.ReadOnly = !External || Busy || recoveryRequired;
+        form.CompleteButton.Enabled = Enabled && !Busy && !recoveryRequired;
+        form.ClearButton.Enabled = !Busy;
+        if (!External) form.Editor.Text = RecoveryText();
+        Changed?.Invoke();
+    }
+    private string RecoveryText() => engine.PendingCommit.Length > 0 ? engine.PendingCommit : pendingText;
+    private string pendingText = "";
+    internal async Task Handle(PadEvent action, int? candidateIndex = null)
+    {
+        if (action.Action is PadAction.Toggle or PadAction.Disable) { await Enable(false); return; }
+        if (!Enabled || Busy) return;
+        if (!OwnsFocus) { Message = "输入已暂停：请返回输入面板继续"; Notify(); return; }
+        if (recoveryRequired) { Message = External ? "上次提交结果需核对；文字已保留，可复制后关闭输入" : "文字已保留，请核对目标；右键面板可复制或清空"; Notify(); return; }
+        if (action.Action == PadAction.Cancel)
+        {
+            if (pendingText.Length > 0 || engine.PendingCommit.Length > 0) { Message = "待提交文字已保留，请复制或关闭输入"; Notify(); return; }
+            engine.Clear(); symbols.Close(); Message = External ? "候选已关闭，输入栏文字保留" : "候选已关闭"; Notify(); return;
+        }
+        if (action.Action == PadAction.SwitchMode)
+        { Mode = Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9; Message = "已切换输入模式"; Notify(); return; }
+        Busy = true; operation = new(); var token = operation.Token;
+        try
+        {
+            if (action.Action == PadAction.Complete)
+            {
+                if (!External) return;
+                if (symbols.Visible) { Insert(symbols.Select(null)); symbols.Close(); }
+                if (engine.View.Preedit.Length > 0) { engine.Confirm(); AppendCommit(); }
+                if (engine.View.Preedit.Length > 0) { Mode = InputMode.T9; Message = "还有未确认的候选，请继续选词后完成"; return; }
+                await CompleteAsync(token); return;
+            }
+            if (Mode == InputMode.Numeric && action.Action == PadAction.Region)
+            {
+                var digit = action.StickClick ? 0 : action.Region + 1;
+                if (External) Insert(digit.ToString());
+                else
+                {
+                    pendingText = digit.ToString();
+                    await InTargetAsync(async () =>
+                    {
+                        var before = NumericInput.SentKeyEvents;
+                        try { NumericInput.SendDigit(InputMode.Numeric, digit, original.Root); await Task.Delay(80); RequireTarget(); return null; }
+                        catch { uncertain = NumericInput.SentKeyEvents != before; throw; }
+                    }, token);
+                    pendingText = "";
+                }
+                NumberHistory = (NumberHistory + digit); if (NumberHistory.Length > 24) NumberHistory = NumberHistory[^24..];
+                Message = External ? "数字已加入输入栏" : "数字已填入目标"; return;
+            }
+            if (Mode == InputMode.T9 && symbols.Visible)
+            {
+                switch (action.Action)
+                {
+                    case PadAction.Previous: symbols.Move(-1); return;
+                    case PadAction.Next: symbols.Move(1); return;
+                    case PadAction.PagePrevious: symbols.Page(-1); return;
+                    case PadAction.PageNext: symbols.Page(1); return;
+                    case PadAction.Backspace: symbols.Close(); return;
+                    case PadAction.Confirm:
+                        var text = symbols.Select(candidateIndex);
+                        await CommitAsync(text, token); symbols.Close(); return;
+                    case PadAction.Region: symbols.Close(); break;
+                }
+            }
+            if (Mode == InputMode.T9 && action.Action == PadAction.Region && action.Region == 0 && engine.View.Preedit.Length == 0)
+            { symbols.Open(); Message = "请选择标点"; return; }
+            if (Mode == InputMode.T9 && action.Action == PadAction.Region) engine.InputRegion(action.Region);
+            else if (action.Action == PadAction.Backspace)
+            {
+                if (Mode == InputMode.T9 && engine.View.Preedit.Length > 0) engine.Process(0xFF08);
+                else if (External) DeleteDraft();
+                else await InTargetAsync(async () =>
+                {
+                    var error = await tsf.Backspace(RequireTarget());
+                    if (tsf.LastBackspaceSimulated) await Task.Delay(80);
+                    return error;
+                }, token);
+            }
+            else if (Mode == InputMode.T9)
+            {
+                switch (action.Action)
+                {
+                    case PadAction.Confirm: engine.Confirm(candidateIndex); break;
+                    case PadAction.Previous: engine.Process(0xFF52); break;
+                    case PadAction.Next: engine.Process(0xFF54); break;
+                    case PadAction.PagePrevious: engine.Process(0xFF55); break;
+                    case PadAction.PageNext: engine.Process(0xFF56); break;
+                }
+            }
+            Notify();
+            if (engine.PendingCommit.Length > 0)
+            { await CommitAsync(engine.PendingCommit, token); engine.AcknowledgeCommit(); }
+            Message = External ? "短按 A 选词，长按 A 完成输入" : "选词后自动填入目标";
+        }
+        catch (OperationCanceledException) { Message = "操作已取消，未完成的文字保留"; }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+            if (!External && RecoveryText().Length > 0) recoveryRequired = true;
+            if (uncertain) { recoveryRequired = true; Message += "；结果待核对，已停止再次提交，可复制保留的文字"; }
+            if (!External && recoveryRequired) Message += "；右键面板可复制或清空";
+        }
+        finally
+        {
+            operation.Dispose(); operation = null; Busy = false; Notify();
+            if (closing && !shuttingDown) { closing = false; await Enable(false); }
+        }
+    }
+    private void AppendCommit()
+    {
+        if (engine.PendingCommit.Length == 0) return;
+        Insert(engine.PendingCommit); engine.AcknowledgeCommit();
+    }
+    private void Insert(string text) { form.Editor.SelectedText = text; form.Editor.ScrollToCaret(); }
+    private void DeleteDraft()
+    {
+        var editor = form.Editor;
+        if (editor.SelectionLength > 0) { editor.SelectedText = ""; return; }
+        var end = editor.SelectionStart; if (end == 0) return;
+        var starts = StringInfo.ParseCombiningCharacters(editor.Text);
+        var start = starts.Last(i => i < end);
+        editor.Select(start, end - start); editor.SelectedText = "";
+    }
+    private async Task CommitAsync(string text, CancellationToken token)
+    {
+        if (External) { Insert(text); return; }
+        pendingText = text;
+        await InTargetAsync(() => tsf.Commit(RequireTarget(), text), token);
+        pendingText = "";
+    }
+    private async Task CompleteAsync(CancellationToken token)
+    {
+        var text = Draft;
+        if (text.Length == 0) { await CloseCoreAsync(); return; }
+        if (behavior.Completion == CompletionDestination.Clipboard)
+        {
+            await CopyAsync(text, token);
+            Message = "文字已复制到剪切板";
+            // Clipboard success is final even if returning focus is later denied.
+            form.Editor.Clear(); await CloseCoreAsync(); return;
+        }
+        // The existing TSF bridge accepts one bounded transaction; never split and risk partial duplicates.
+        if (text.Length > 1024) throw new InvalidOperationException("目标单次最多接收 1024 个 UTF-16 单元；请缩短文字或使用复制保留文字按钮。");
+        await InTargetAsync(() => tsf.Commit(RequireTarget(), text), token, returnToPanel: false);
+        form.Editor.Clear(); Message = "文字已填入目标程序";
+        await CloseCoreAsync();
+    }
+    private bool TargetMatches()
+    {
+        if (!original.IsAlive || InputMethodSwitcher.Foreground() != original) return false;
+        if (originalControl == null) return true;
+        try { return AutomationElement.FocusedElement?.GetRuntimeId().SequenceEqual(originalControl) == true; }
+        catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException or COMException) { return false; }
+    }
+    private Target RequireTarget()
+    {
+        if (!TargetMatches()) throw new InvalidOperationException("原目标文本框已变化，文字保留，未提交。");
+        return TsfClient.FindTarget() ?? throw new InvalidOperationException("目标文本框未提供输入通道，文字保留，可复制后手动粘贴。");
+    }
+    private async Task WaitNeutralAsync(CancellationToken token)
+    {
+        Message = "请松开手柄按键并让摇杆回中，随后返回目标"; Notify();
+        for (var i = 0; i < 400; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            if (neutral()) return;
+            await Task.Delay(20, token);
+        }
+        throw new InvalidOperationException("等待手柄释放超时，文字已保留。");
+    }
+    private async Task InTargetAsync(Func<Task<string?>> edit, CancellationToken token, bool returnToPanel = true)
+    {
+        uncertain = false;
+        await WaitNeutralAsync(token);
+        if (!OwnsFocus) throw new InvalidOperationException("您已切换到其他窗口，已停止自动填入。");
+        if (!original.IsAlive) throw new InvalidOperationException("原目标窗口已关闭，文字已保留。");
+        try
+        {
+            SetForegroundWindow(original.Root);
+            for (var i = 0; i < 40 && !TargetMatches(); i++) await Task.Delay(20, token);
+            if (!TargetMatches()) throw new InvalidOperationException("无法恢复原文本框焦点，文字已保留。");
+            if (!inputMethods.HasSavedProfiles) await inputMethods.StartAsync();
+            else await inputMethods.FollowAsync();
+            token.ThrowIfCancellationRequested(); RequireTarget();
+            var error = await edit(); // Once dispatched, always await the receipt even if cancellation arrives.
+            uncertain |= tsf.LastOutcomeUncertain;
+            if (error != null) throw new InvalidOperationException(error);
+        }
+        catch
+        {
+            if (Enabled && (TsfClient.GetForegroundWindow() == original.Root || OwnsFocus)) await FocusPanelAsync();
+            throw;
+        }
+        finally
+        {
+            if (returnToPanel && Enabled && !closing && TsfClient.GetForegroundWindow() == original.Root)
+            {
+                var returned = await FocusPanelAsync();
+                if (!returned) Message = "文字已填入；请点击输入面板继续";
+            }
+        }
+    }
+    private async Task<bool> FocusPanelAsync()
+    {
+        if (!focusSurface.Visible) focusSurface.Show();
+        focusSurface.Activate(); SetForegroundWindow(focusSurface.Handle);
+        if (!OwnsFocus && InputMethodSwitcher.Foreground() == original)
+        {
+            try
+            {
+                var granted = await inputMethods.RunAsync(original, "grant-focus", focusDestination: focusSurface.Handle);
+                if (granted.Ok && InputMethodSwitcher.Foreground() == original) SetForegroundWindow(focusSurface.Handle);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception) { Message = ex.Message; }
+        }
+        if (External) form.Editor.Focus();
+        for (var i = 0; i < 25 && !OwnsFocus; i++) await Task.Delay(20);
+        return OwnsFocus;
+    }
+    private async Task CloseCoreAsync(bool waitForRelease = true)
+    {
+        var returnFocus = OwnsFocus && waitForRelease;
+        if (returnFocus)
+        {
+            try { await WaitNeutralAsync(CancellationToken.None); }
+            catch (Exception ex) { Message = ex.Message; return; }
+        }
+        // Preserve any unacknowledged text before clearing the engine on the next session.
+        if (!External && RecoveryText().Length > 0) saveDraft(RecoveryText());
+        Enabled = false;
+        await RestoreProfileAsync();
+        if (returnFocus && original.IsAlive && OwnsFocus)
+            SetForegroundWindow(original.Root);
+        form.Hide();
+        if (Message.Length == 0) Message = "输入已关闭";
+    }
+    private async Task RestoreProfileAsync()
+    {
+        try { if (inputMethods.HasSavedProfiles) await inputMethods.RestoreAsync(); }
+        catch (Exception ex) { Message += "；" + ex.Message; }
+    }
+    internal static async Task CopyAsync(string text, CancellationToken token)
+    {
+        if (text.Length == 0) throw new InvalidOperationException("没有可复制的文字。");
+        for (var i = 0; ; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            try { Clipboard.SetText(text, TextDataFormat.UnicodeText); return; }
+            catch (ExternalException) when (i < 5) { await Task.Delay(60, token); }
+        }
+    }
+    public void Dispose()
+    {
+        if (disposed) return; disposed = true;
+        if (External) saveDraft(Draft); else if (RecoveryText().Length > 0) saveDraft(RecoveryText());
+        operation?.Cancel(); form.AllowClose = true; form.Dispose();
+    }
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint window);
+}
+
+internal sealed class FocusInputForm : Form
+{
+    internal TextBox Editor { get; } = new() { Name = "ExternalInputText", Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, MaxLength = 32767 };
+    internal Label Status { get; } = new() { Name = "FocusInputStatus", Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
+    internal CompletionGlyphButton CompleteButton { get; } = new() { Name = "CompleteExternalInput", Dock = DockStyle.Fill };
+    internal Button ClearButton { get; } = new() { Name = "ClearExternalDraft", Text = "清空草稿", Dock = DockStyle.Fill };
+    internal bool AllowClose;
+    internal event Action? CompleteRequested, CancelRequested, CopyRequested, ClearRequested;
+    internal FocusInputForm(bool external, CompletionDestination destination, string program)
+    {
+        Text = $"GamePad T9 · {(external ? "外部输入框" : "游戏失去焦点")} · {program}";
+        Name = "FocusedInputWindow"; TopMost = true; ShowInTaskbar = false;
+        FormBorderStyle = FormBorderStyle.FixedToolWindow; StartPosition = FormStartPosition.Manual;
+        AutoScaleDimensions = new(96, 96); AutoScaleMode = AutoScaleMode.Dpi;
+        ClientSize = new(780, 175); Font = new("Microsoft YaHei UI", 10);
+        BackColor = Color.FromArgb(20, 24, 29); ForeColor = Color.WhiteSmoke;
+        Editor.BackColor = Color.FromArgb(33, 39, 46); Editor.ForeColor = Color.WhiteSmoke; Editor.ReadOnly = !external;
+        Editor.AccessibleName = external ? "外部输入栏" : "待提交文字（只读）";
+        Editor.PlaceholderText = external ? "选词后文字显示在这里，可直接编辑" : "确认候选后自动填入原程序；提交失败的文字会保留在这里";
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(10), ColumnCount = 1, RowCount = 3 };
+        layout.RowStyles.Add(new(SizeType.Percent, 100)); layout.RowStyles.Add(new(SizeType.Absolute, 30)); layout.RowStyles.Add(new(SizeType.Absolute, 38)); Controls.Add(layout);
+        layout.Controls.Add(Editor, 0, 0); layout.Controls.Add(Status, 0, 1);
+        var buttons = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4 };
+        foreach (var width in new[] { 35, 25, 15, 25 }) buttons.ColumnStyles.Add(new(SizeType.Percent, width));
+        CompleteButton.Prompt = destination == CompletionDestination.Clipboard ? "完成并复制（长按 [A]）" : "完成并填入（长按 [A]）";
+        CompleteButton.AccessibleName = destination == CompletionDestination.Clipboard ? "完成并复制，长按确认键" : "完成并填入，长按确认键"; CompleteButton.Visible = external;
+        var copy = new Button { Text = "复制保留的文字", Name = "CopyDraft", Dock = DockStyle.Fill };
+        var cancel = new Button { Text = "关闭并保留草稿", Name = "CancelExternalInput", Dock = DockStyle.Fill };
+        foreach (var button in new Button[] { CompleteButton, copy, ClearButton, cancel }) { button.FlatStyle = FlatStyle.Flat; button.BackColor = Color.FromArgb(33, 39, 46); }
+        buttons.Controls.Add(CompleteButton, 0, 0); buttons.Controls.Add(copy, 1, 0); buttons.Controls.Add(ClearButton, 2, 0); buttons.Controls.Add(cancel, 3, 0); layout.Controls.Add(buttons, 0, 2);
+        CompleteButton.Click += (_, _) => CompleteRequested?.Invoke(); cancel.Click += (_, _) => CancelRequested?.Invoke(); copy.Click += (_, _) => CopyRequested?.Invoke();
+        ClearButton.Click += (_, _) => ClearRequested?.Invoke();
+        FormClosing += (_, e) => { if (!AllowClose) { e.Cancel = true; CancelRequested?.Invoke(); } };
+    }
+    internal void UseFamily(GamepadFamily family) { CompleteButton.Family = family; CompleteButton.Invalidate(); }
+    internal void PlaceAbove(Rectangle overlay)
+    {
+        var area = Screen.FromRectangle(overlay).WorkingArea;
+        Width = Math.Min(overlay.Width, area.Width - 30);
+        Location = new(Math.Clamp(overlay.Left, area.Left, area.Right - Width), Math.Max(area.Top, overlay.Top - Height - 4));
+    }
+    protected override void OnShown(EventArgs e) { base.OnShown(e); ShowWindow(Handle, 1); }
+    [DllImport("user32.dll")] private static extern bool ShowWindow(nint window, int command);
+}
+
+internal sealed class CompletionGlyphButton : Button
+{
+    private readonly ButtonGlyphs glyphs = new();
+    internal string Prompt = "";
+    internal GamepadFamily Family;
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        glyphs.Draw(e.Graphics, Prompt, Family, Font, Enabled ? ForeColor : Color.Gray, new(5, 2, Width - 10, Height - 4), 23 * DeviceDpi / 96f, true);
+    }
+    protected override void Dispose(bool disposing) { if (disposing) glyphs.Dispose(); base.Dispose(disposing); }
+}

@@ -8,6 +8,8 @@ data/installed/
 gamepadt9.json
 user-settings.json
 user-settings.json.*.tmp
+program-profiles.json
+program-profiles.json.*.tmp
 *.user
 /Bridge.lib
 /Bridge.exp

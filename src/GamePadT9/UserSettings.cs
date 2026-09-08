@@ -8,6 +8,9 @@ internal enum ControlSide { Left, Right }
 
 internal sealed record UserSettings
 {
+    public string? ControllerId { get; init; }
+    public string? ControllerName { get; init; }
+    public GamepadFamily ControllerFamily { get; init; } = GamepadFamily.Xbox;
     public ControlSide Stick { get; init; } = ControlSide.Right;
     public ControlSide Trigger { get; init; } = ControlSide.Right;
     public int PanelOpacity { get; init; } = 50;
@@ -19,7 +22,8 @@ internal sealed record UserSettings
     internal static int Alpha(int percentage) => (percentage * 255 + 50) / 100;
     internal void Validate()
     {
-        if (!Enum.IsDefined(Stick) || !Enum.IsDefined(Trigger) ||
+        if (!Enum.IsDefined(Stick) || !Enum.IsDefined(Trigger) || !Enum.IsDefined(ControllerFamily) ||
+            (ControllerId != null && string.IsNullOrWhiteSpace(ControllerId)) ||
             PanelOpacity is < 0 or > 100 || GridOpacity is < 0 or > 100 || HighlightOpacity is < 0 or > 100)
             throw new InvalidDataException("摇杆、扳机或可见度设置无效。可见度范围为 0–100%。");
     }

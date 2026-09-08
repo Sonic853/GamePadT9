@@ -13,9 +13,14 @@ internal sealed class MainForm : Form
     private readonly InputSession session;
     private int region = 4;
     private uint? pad;
+    private GamepadDevice? device;
+    private readonly ButtonGlyphs glyphs = new();
+    private GamepadFamily Family => device?.Family ?? session.Preferences.ControllerFamily;
     private float scale = 1;
     private bool dragging;
     private bool dirty = true, rendering;
+    private bool acceptsFocus;
+    private readonly ContextMenuStrip recoveryMenu = new();
     internal event Action? SettingsRequested;
     private Point dragOrigin, windowOrigin;
     private readonly Font titleFont = new("Microsoft YaHei UI", 19, FontStyle.Bold, GraphicsUnit.Pixel);
@@ -37,20 +42,28 @@ internal sealed class MainForm : Form
         for (var i = 0; i < original.Length; i++) output[i] = original[i] switch
         { '7' => '1', '8' => '2', '9' => '3', '1' => '7', '2' => '8', '3' => '9', _ => original[i] };
     });
-    protected override bool ShowWithoutActivation => true;
+    protected override bool ShowWithoutActivation => !acceptsFocus;
     protected override CreateParams CreateParams
     {
-        get { var cp = base.CreateParams; cp.ExStyle |= 0x08000000 | 0x00000080 | 0x00000008 | 0x00080000; return cp; }
+        get { var cp = base.CreateParams; cp.ExStyle |= 0x00000080 | 0x00000008 | 0x00080000; if (!acceptsFocus) cp.ExStyle |= 0x08000000; return cp; }
     }
     public MainForm(InputSession session)
     {
         this.session = session;
+        session.FocusOverlay = this;
         Text = "GamePad T9 · 输入面板";
         FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true;
         BackColor = Background; AutoScaleMode = AutoScaleMode.None;
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
         StartPosition = FormStartPosition.Manual; ClientSize = new Size(DesignWidth, DesignHeight);
         session.Changed += OnSessionChanged;
+        recoveryMenu.Items.Add("复制保留的文字", null, async (_, _) => { if (session.Focused is { } focused) await focused.CopyRetainedTextAsync(); });
+        recoveryMenu.Items.Add("清空草稿", null, (_, _) => session.Focused?.ClearRetainedText());
+        recoveryMenu.Opening += (_, e) =>
+        {
+            e.Cancel = session.Focused is not { Enabled: true, External: false };
+            foreach (ToolStripItem item in recoveryMenu.Items) item.Enabled = session.Focused is { Busy: false, HasRetainedText: true };
+        };
     }
     private void OnSessionChanged() { if (!IsDisposed) { dirty = true; Present(region, pad); } }
     internal void ApplySettings(UserSettings settings)
@@ -58,17 +71,21 @@ internal sealed class MainForm : Form
         settings.Validate(); session.Preferences = settings; dirty = true;
         if (Visible) RenderLayer();
     }
+    internal void UseDevice(GamepadDevice? value) { if (device != value) { device = value; dirty = true; } }
     internal void Present(int selectedRegion, uint? controllerSlot)
     {
         var changed = region != selectedRegion || pad != controllerSlot;
         dirty |= changed;
         region = selectedRegion; pad = controllerSlot;
+        var focusRequired = session.Focused is { Enabled: true, External: false };
+        if (acceptsFocus != focusRequired) { acceptsFocus = focusRequired; if (IsHandleCreated) UpdateStyles(); }
         if (!session.Enabled) { if (Visible) Hide(); return; }
         if (!Visible)
         {
             var area = Screen.FromHandle(TsfClient.GetForegroundWindow()).WorkingArea;
             // Fit the monitor's physical work area even at large display scaling.
-            scale = Math.Min(DeviceDpi / 96f, Math.Min((area.Width - 32f) / DesignWidth, (area.Height - 32f) / DesignHeight));
+            var inputBarHeight = session.Focused is { Enabled: true, External: true } ? session.Focused.Form.Height + 4 : 0;
+            scale = Math.Min(DeviceDpi / 96f, Math.Min((area.Width - 32f) / DesignWidth, (area.Height - 32f - inputBarHeight) / DesignHeight));
             scale = Math.Max(0.5f, scale);
             ClientSize = new Size((int)(DesignWidth * scale), (int)(DesignHeight * scale));
             Location = new Point(area.Right - Width - 20, area.Bottom - Height - 20);
@@ -83,7 +100,7 @@ internal sealed class MainForm : Form
     }
     protected override void WndProc(ref Message m)
     {
-        if (m.Msg == 0x0021) { m.Result = new nint(3); return; } // MA_NOACTIVATE
+        if (m.Msg == 0x0021 && !acceptsFocus) { m.Result = new nint(3); return; } // MA_NOACTIVATE
         base.WndProc(ref m);
     }
     protected override void OnPaint(PaintEventArgs e)
@@ -115,11 +132,11 @@ internal sealed class MainForm : Form
         g.ScaleTransform(scale, scale); g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
         TextAt(g, "GAMEPAD T9", titleFont, Color.White, new(20, 20, 270, 30));
-        TextAt(g, pad is uint n ? $"●  手柄 {n + 1} 已连接" : "●  等待手柄连接", smallFont, pad == null ? Muted : Accent, new(22, 57, 300, 25));
+        TextAt(g, pad != null ? $"●  {device?.Name ?? "手柄"} 已连接" : "●  等待所选手柄连接", smallFont, pad == null ? Muted : Accent, new(22, 57, 450, 25));
         Fill(g, settingsRect, panelColor);
         TextAt(g, "设置", smallFont, Color.White, settingsRect, true);
         Fill(g, modeRect, panelColor);
-        TextAt(g, session.Mode == InputMode.T9 ? "Y   九键中文" : "Y   数字输入", smallFont, Accent, modeRect, true);
+        Hint(g, session.Mode == InputMode.T9 ? "[Y] 九键中文" : "[Y] 数字输入", modeRect, Accent, true);
         TextAt(g, "×", gridFont, Muted, closeRect, true);
         string[] labels = session.Mode == InputMode.T9 ? ["符号", "ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ"] : ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
         for (var i = 0; i < 9; i++)
@@ -128,13 +145,15 @@ internal sealed class MainForm : Form
             Fill(g, rect, selected ? highlight : gridColor);
             TextAt(g, labels[i], gridFont, selected ? Background : Color.White, rect, true);
         }
-        TextAt(g, session.Mode == InputMode.T9 ? $"{preferences.TriggerLabel} / {preferences.StickClickLabel}  输入高亮区域" : $"{preferences.TriggerLabel}  输入高亮数字    {preferences.StickClickLabel}  输入 0", smallFont, Muted, new(20, 420, 335, 25), true);
+        Hint(g, session.Mode == InputMode.T9 ? $"[{preferences.TriggerLabel}] / [{preferences.StickClickLabel}] 输入高亮区域" : $"[{preferences.TriggerLabel}] 输入高亮数字  [{preferences.StickClickLabel}] 输入 0", new(20, 420, 335, 25), Muted, true);
         if (session.Mode == InputMode.Numeric)
         {
             TextAt(g, "数字输入", titleFont, Color.White, new(366, 96, 360, 28));
             TextAt(g, "最近输入", smallFont, Muted, new(366, 150, 360, 24));
             TextAt(g, session.NumberHistory.Length == 0 ? "—" : session.NumberHistory, gridFont, Accent, new(366, 186, 394, 90));
-            TextAt(g, $"{preferences.StickClickLabel} 输入 0\nX 退格\nY 返回九键中文", mainFont, Muted, new(366, 294, 394, 115));
+            Hint(g, $"[{preferences.StickClickLabel}] 输入 0", new(366, 294, 394, 30));
+            Hint(g, "[X] 退格", new(366, 332, 394, 30));
+            Hint(g, "[Y] 返回九键中文", new(366, 370, 394, 30));
         }
         else
         {
@@ -142,9 +161,15 @@ internal sealed class MainForm : Form
             var view = session.View;
             TextAt(g, $"第 {view.Page + 1} 页", smallFont, Muted, new(676, 101, 84, 24));
             Fill(g, new(366, 134, 394, 35), panelColor);
-            TextAt(g, view.Preedit.Length == 0 ? $"选择字母组，按 {preferences.TriggerLabel} 开始输入" : DisplayedPreedit, smallFont, Accent, new(378, 141, 370, 23));
+            if (view.Preedit.Length == 0) Hint(g, $"选择字母组，按 [{preferences.TriggerLabel}] 开始输入", new(378, 140, 370, 25), Accent);
+            else TextAt(g, DisplayedPreedit, smallFont, Accent, new(378, 141, 370, 23));
             if (view.Candidates.Length == 0)
-                TextAt(g, "候选词将在这里显示\n\nA 确认当前候选\nLB / RB 上下选择\n十字键左右翻页", mainFont, Muted, new(380, 205, 360, 190));
+            {
+                TextAt(g, "候选词将在这里显示", mainFont, Muted, new(380, 205, 360, 30));
+                Hint(g, "[A] 确认当前候选", new(380, 268, 360, 30));
+                Hint(g, "[LB] / [RB] 上下选择", new(380, 309, 360, 30));
+                Hint(g, "[Left] / [Right] 前后翻页", new(380, 350, 360, 30));
+            }
             for (var i = 0; i < Math.Min(view.Candidates.Length, 9); i++)
             {
                 var rect = CandidateRect(i); var selected = i == view.Highlight;
@@ -157,9 +182,12 @@ internal sealed class MainForm : Form
         }
         using var line = new Pen(Color.FromArgb(UserSettings.Alpha(preferences.PanelOpacity), 49, 57, 65)); g.DrawLine(line, 20, 454, 760, 454);
         TextAt(g, session.Busy ? "正在输入…" : session.Message, smallFont, Color.WhiteSmoke, new(20, 466, 740, 22));
-        TextAt(g, "A 选词   LB / RB 翻选   X 退格   B 关闭候选   长按 B 关闭输入   View + Menu 开关", smallFont, Muted, new(20, 494, 740, 22));
+        Hint(g, session.ExternalInput ? "[A] 选词  长按 [A] 完成  [X] 退格  [B] 关闭候选  长按 [B] 保留草稿并关闭  [View] + [Menu] 开关" :
+            "[A] 选词   [LB] / [RB] 翻选   [X] 退格   [B] 关闭候选   长按 [B] 关闭输入   [View] + [Menu] 开关", new(20, 491, 740, 26));
         using var border = new Pen(Color.FromArgb(UserSettings.Alpha(preferences.PanelOpacity), 70, 85, 96)); g.DrawRectangle(border, 0, 0, DesignWidth - 1, DesignHeight - 1);
     }
+    private void Hint(Graphics g, string text, RectangleF bounds, Color? color = null, bool center = false)
+        => glyphs.Draw(g, text, Family, smallFont, color ?? Muted, bounds, 24, center);
     private static RectangleF Cell(int i) => new(20 + i % 3 * 108, 96 + i / 3 * 108, 100, 100);
     private static RectangleF CandidateRect(int i) => new(366, 181 + i * 29, 394, 28);
     private static void Fill(Graphics g, RectangleF rect, Color color)
@@ -177,6 +205,7 @@ internal sealed class MainForm : Form
     protected override async void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
+        if (e.Button == MouseButtons.Right && acceptsFocus) { recoveryMenu.Show(this, e.Location); return; }
         if (e.Button != MouseButtons.Left) return;
         var point = new PointF(e.X / scale, e.Y / scale);
         if (settingsRect.Contains(point)) { SettingsRequested?.Invoke(); return; }
@@ -197,7 +226,7 @@ internal sealed class MainForm : Form
     protected override void OnMouseUp(MouseEventArgs e) { dragging = false; Capture = false; base.OnMouseUp(e); }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { session.Changed -= OnSessionChanged; titleFont.Dispose(); mainFont.Dispose(); gridFont.Dispose(); smallFont.Dispose(); }
+        if (disposing) { session.Changed -= OnSessionChanged; if (session.FocusOverlay == this) session.FocusOverlay = null; recoveryMenu.Dispose(); titleFont.Dispose(); mainFont.Dispose(); gridFont.Dispose(); smallFont.Dispose(); glyphs.Dispose(); }
         base.Dispose(disposing);
     }
     [DllImport("user32.dll")] private static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int w, int h, uint flags);
