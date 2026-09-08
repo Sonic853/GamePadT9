@@ -281,16 +281,11 @@ internal sealed class NotepadValidation : Form
         }
         catch (ElementNotAvailableException) { return true; }
     }
-    private static void CaptureOverlay(Form form, string path)
+    private static void CaptureOverlay(MainForm form, string path)
     {
-        using var bitmap = new Bitmap(form.Width, form.Height);
-        using var graphics = Graphics.FromImage(bitmap);
-        var dc = graphics.GetHdc();
-        try { if (!PrintWindow(form.Handle, dc, 2)) throw new Exception("浮窗截图失败。"); }
-        finally { graphics.ReleaseHdc(dc); }
+        using var bitmap = form.CreateSnapshot();
         bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
     }
-    [DllImport("user32.dll")] private static extern bool PrintWindow(nint hwnd, nint dc, uint flags);
     [DllImport("user32.dll")] private static extern nint WindowFromPoint(Point point);
     [DllImport("user32.dll")] private static extern nint GetAncestor(nint hwnd, uint flags);
     private static string Read(AutomationElement editor)

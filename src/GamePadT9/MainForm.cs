@@ -1,5 +1,6 @@
 ﻿using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -14,6 +15,8 @@ internal sealed class MainForm : Form
     private uint? pad;
     private float scale = 1;
     private bool dragging;
+    private bool dirty = true, rendering;
+    internal event Action? SettingsRequested;
     private Point dragOrigin, windowOrigin;
     private readonly Font titleFont = new("Microsoft YaHei UI", 19, FontStyle.Bold, GraphicsUnit.Pixel);
     private readonly Font mainFont = new("Microsoft YaHei UI", 19, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -23,7 +26,7 @@ internal sealed class MainForm : Form
     private static readonly Color PanelColor = Color.FromArgb(33, 39, 46);
     private static readonly Color Accent = Color.FromArgb(110, 236, 169);
     private static readonly Color Muted = Color.FromArgb(153, 166, 180);
-    private readonly RectangleF modeRect = new(586, 18, 130, 36), closeRect = new(728, 18, 32, 36);
+    private readonly RectangleF settingsRect = new(500, 18, 74, 36), modeRect = new(586, 18, 130, 36), closeRect = new(728, 18, 32, 36);
     private long lastRaise;
     internal int DisplayedCandidateCount => session.View.Candidates.Length;
     internal int HighlightedRegion => region;
@@ -37,21 +40,28 @@ internal sealed class MainForm : Form
     protected override bool ShowWithoutActivation => true;
     protected override CreateParams CreateParams
     {
-        get { var cp = base.CreateParams; cp.ExStyle |= 0x08000000 | 0x00000080 | 0x00000008; return cp; }
+        get { var cp = base.CreateParams; cp.ExStyle |= 0x08000000 | 0x00000080 | 0x00000008 | 0x00080000; return cp; }
     }
     public MainForm(InputSession session)
     {
         this.session = session;
         Text = "GamePad T9 · 输入面板";
         FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true;
-        BackColor = Background; DoubleBuffered = true; AutoScaleMode = AutoScaleMode.None;
+        BackColor = Background; AutoScaleMode = AutoScaleMode.None;
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
         StartPosition = FormStartPosition.Manual; ClientSize = new Size(DesignWidth, DesignHeight);
         session.Changed += OnSessionChanged;
     }
-    private void OnSessionChanged() { if (!IsDisposed) { Present(region, pad); Invalidate(); } }
+    private void OnSessionChanged() { if (!IsDisposed) { dirty = true; Present(region, pad); } }
+    internal void ApplySettings(UserSettings settings)
+    {
+        settings.Validate(); session.Preferences = settings; dirty = true;
+        if (Visible) RenderLayer();
+    }
     internal void Present(int selectedRegion, uint? controllerSlot)
     {
         var changed = region != selectedRegion || pad != controllerSlot;
+        dirty |= changed;
         region = selectedRegion; pad = controllerSlot;
         if (!session.Enabled) { if (Visible) Hide(); return; }
         if (!Visible)
@@ -62,9 +72,9 @@ internal sealed class MainForm : Form
             scale = Math.Max(0.5f, scale);
             ClientSize = new Size((int)(DesignWidth * scale), (int)(DesignHeight * scale));
             Location = new Point(area.Right - Width - 20, area.Bottom - Height - 20);
-            Show(); changed = true;
+            dirty = true; RenderLayer(); Show();
         }
-        if (changed) Invalidate();
+        if (dirty) RenderLayer();
         if (Environment.TickCount64 - lastRaise >= 250)
         {
             lastRaise = Environment.TickCount64;
@@ -78,57 +88,86 @@ internal sealed class MainForm : Form
     }
     protected override void OnPaint(PaintEventArgs e)
     {
-        base.OnPaint(e);
-        var g = e.Graphics;
+        RenderLayer();
+    }
+    protected override void OnPaintBackground(PaintEventArgs e) { }
+    protected override void OnInvalidated(InvalidateEventArgs e) { dirty = true; base.OnInvalidated(e); }
+    private void RenderLayer()
+    {
+        if (rendering || IsDisposed || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
+        rendering = true;
+        try { using var bitmap = CreateSnapshot(); LayeredWindow.Update(Handle, bitmap, Location); dirty = false; }
+        finally { rendering = false; }
+    }
+    internal Bitmap CreateSnapshot()
+    {
+        var bitmap = new Bitmap(ClientSize.Width, ClientSize.Height, PixelFormat.Format32bppPArgb);
+        try { using var g = Graphics.FromImage(bitmap); DrawPanel(g); return bitmap; }
+        catch { bitmap.Dispose(); throw; }
+    }
+    private void DrawPanel(Graphics g)
+    {
+        var preferences = session.Preferences;
+        var panelColor = Color.FromArgb(UserSettings.Alpha(preferences.PanelOpacity), PanelColor);
+        var gridColor = Color.FromArgb(UserSettings.Alpha(preferences.GridOpacity), PanelColor);
+        var highlight = Color.FromArgb(UserSettings.Alpha(preferences.HighlightOpacity), Accent);
+        g.Clear(Color.FromArgb(UserSettings.Alpha(preferences.PanelOpacity), Background));
         g.ScaleTransform(scale, scale); g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+        g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
         TextAt(g, "GAMEPAD T9", titleFont, Color.White, new(20, 20, 270, 30));
         TextAt(g, pad is uint n ? $"●  手柄 {n + 1} 已连接" : "●  等待手柄连接", smallFont, pad == null ? Muted : Accent, new(22, 57, 300, 25));
-        Fill(g, modeRect, PanelColor);
+        Fill(g, settingsRect, panelColor);
+        TextAt(g, "设置", smallFont, Color.White, settingsRect, true);
+        Fill(g, modeRect, panelColor);
         TextAt(g, session.Mode == InputMode.T9 ? "Y   九键中文" : "Y   数字输入", smallFont, Accent, modeRect, true);
         TextAt(g, "×", gridFont, Muted, closeRect, true);
         string[] labels = session.Mode == InputMode.T9 ? ["符号", "ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ"] : ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
         for (var i = 0; i < 9; i++)
         {
             var rect = Cell(i); var selected = i == region;
-            Fill(g, rect, selected ? Accent : PanelColor);
+            Fill(g, rect, selected ? highlight : gridColor);
             TextAt(g, labels[i], gridFont, selected ? Background : Color.White, rect, true);
         }
-        TextAt(g, session.Mode == InputMode.T9 ? "RT / R3  输入高亮区域" : "RT  输入高亮数字    R3  输入 0", smallFont, Muted, new(20, 420, 335, 25), true);
+        TextAt(g, session.Mode == InputMode.T9 ? $"{preferences.TriggerLabel} / {preferences.StickClickLabel}  输入高亮区域" : $"{preferences.TriggerLabel}  输入高亮数字    {preferences.StickClickLabel}  输入 0", smallFont, Muted, new(20, 420, 335, 25), true);
         if (session.Mode == InputMode.Numeric)
         {
             TextAt(g, "数字输入", titleFont, Color.White, new(366, 96, 360, 28));
             TextAt(g, "最近输入", smallFont, Muted, new(366, 150, 360, 24));
             TextAt(g, session.NumberHistory.Length == 0 ? "—" : session.NumberHistory, gridFont, Accent, new(366, 186, 394, 90));
-            TextAt(g, "R3 输入 0\nX 退格\nY 返回九键中文", mainFont, Muted, new(366, 294, 394, 115));
+            TextAt(g, $"{preferences.StickClickLabel} 输入 0\nX 退格\nY 返回九键中文", mainFont, Muted, new(366, 294, 394, 115));
         }
         else
         {
             TextAt(g, "候选词", titleFont, Color.White, new(366, 96, 200, 28));
             var view = session.View;
             TextAt(g, $"第 {view.Page + 1} 页", smallFont, Muted, new(676, 101, 84, 24));
-            Fill(g, new(366, 134, 394, 35), PanelColor);
-            TextAt(g, view.Preedit.Length == 0 ? "选择字母组，按 RT 开始输入" : DisplayedPreedit, smallFont, Accent, new(378, 141, 370, 23));
+            Fill(g, new(366, 134, 394, 35), panelColor);
+            TextAt(g, view.Preedit.Length == 0 ? $"选择字母组，按 {preferences.TriggerLabel} 开始输入" : DisplayedPreedit, smallFont, Accent, new(378, 141, 370, 23));
             if (view.Candidates.Length == 0)
                 TextAt(g, "候选词将在这里显示\n\nA 确认当前候选\nLB / RB 上下选择\n十字键左右翻页", mainFont, Muted, new(380, 205, 360, 190));
             for (var i = 0; i < Math.Min(view.Candidates.Length, 9); i++)
             {
                 var rect = CandidateRect(i); var selected = i == view.Highlight;
-                if (selected) Fill(g, rect, Accent);
+                if (selected) Fill(g, rect, highlight);
                 var text = view.Candidates[i];
                 TextAt(g, (i + 1).ToString(), smallFont, selected ? Background : Muted, new(rect.X + 10, rect.Y + 5, 24, 24));
                 TextAt(g, text.Text, mainFont, selected ? Background : Color.White, new(rect.X + 38, rect.Y + 1, 210, 27));
                 TextAt(g, text.Comment, smallFont, selected ? Color.FromArgb(43, 87, 62) : Muted, new(rect.X + 252, rect.Y + 5, 132, 22));
             }
         }
-        using var line = new Pen(Color.FromArgb(49, 57, 65)); g.DrawLine(line, 20, 454, 760, 454);
+        using var line = new Pen(Color.FromArgb(UserSettings.Alpha(preferences.PanelOpacity), 49, 57, 65)); g.DrawLine(line, 20, 454, 760, 454);
         TextAt(g, session.Busy ? "正在输入…" : session.Message, smallFont, Color.WhiteSmoke, new(20, 466, 740, 22));
         TextAt(g, "A 选词   LB / RB 翻选   X 退格   B 关闭候选   长按 B 关闭输入   View + Menu 开关", smallFont, Muted, new(20, 494, 740, 22));
-        using var border = new Pen(Color.FromArgb(70, 85, 96)); g.DrawRectangle(border, 0, 0, DesignWidth - 1, DesignHeight - 1);
+        using var border = new Pen(Color.FromArgb(UserSettings.Alpha(preferences.PanelOpacity), 70, 85, 96)); g.DrawRectangle(border, 0, 0, DesignWidth - 1, DesignHeight - 1);
     }
     private static RectangleF Cell(int i) => new(20 + i % 3 * 108, 96 + i / 3 * 108, 100, 100);
     private static RectangleF CandidateRect(int i) => new(366, 181 + i * 29, 394, 28);
-    private static void Fill(Graphics g, RectangleF rect, Color color) { using var brush = new SolidBrush(color); g.FillRectangle(brush, rect); }
+    private static void Fill(Graphics g, RectangleF rect, Color color)
+    {
+        // Replace the background alpha, rather than accumulating it under each cell.
+        var mode = g.CompositingMode; g.CompositingMode = CompositingMode.SourceCopy;
+        using var brush = new SolidBrush(color); g.FillRectangle(brush, rect); g.CompositingMode = mode;
+    }
     private static void TextAt(Graphics g, string text, Font font, Color color, RectangleF rect, bool center = false)
     {
         using var brush = new SolidBrush(color);
@@ -140,6 +179,7 @@ internal sealed class MainForm : Form
         base.OnMouseDown(e);
         if (e.Button != MouseButtons.Left) return;
         var point = new PointF(e.X / scale, e.Y / scale);
+        if (settingsRect.Contains(point)) { SettingsRequested?.Invoke(); return; }
         if (closeRect.Contains(point)) { await session.Enable(false); return; }
         if (modeRect.Contains(point)) { await session.Handle(new(PadAction.SwitchMode)); return; }
         if (point.Y < 82) { dragging = true; dragOrigin = Cursor.Position; windowOrigin = Location; Capture = true; return; }

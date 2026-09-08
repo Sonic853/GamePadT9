@@ -1,6 +1,6 @@
-param([switch]$Notepad, [switch]$Editor, [switch]$Installed, [switch]$Standalone, [switch]$InputMethod, [switch]$Backspace, [switch]$Xiaobai, [ValidateSet('x64','x86')][string]$Architecture = 'x64')
+param([switch]$Notepad, [switch]$Editor, [switch]$Installed, [switch]$Standalone, [switch]$InputMethod, [switch]$Backspace, [switch]$Xiaobai, [switch]$Settings, [ValidateSet('x64','x86')][string]$Architecture = 'x64')
 $ErrorActionPreference = 'Stop'
-if ($InputMethod) { $Editor = $true; $Installed = $true }
+if ($InputMethod -or $Settings) { $Editor = $true; $Installed = $true }
 if ($Standalone -and !$Editor) { throw '-Standalone requires -Editor.' }
 if ($Standalone) { $Installed = $true }
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -28,6 +28,7 @@ if ($Backspace) {
     $prefix = "backspace-$Architecture"
     $mode = '--verify-backspace' + $(if ($Architecture -eq 'x86') { ' --x86' } else { '' }) + $(if ($Xiaobai) { ' --xiaobai' } else { '' })
 }
+if ($Settings) { $prefix = 'settings'; $mode = '--verify-settings' }
 $process = Start-Process -FilePath $app -ArgumentList $mode -WindowStyle Hidden -Wait -PassThru `
     -RedirectStandardOutput (Join-Path $projectRoot "artifacts\$prefix.stdout.txt") `
     -RedirectStandardError (Join-Path $projectRoot "artifacts\$prefix.stderr.txt")

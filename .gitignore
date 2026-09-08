@@ -6,6 +6,8 @@ runtime/
 data/generated/
 data/installed/
 gamepadt9.json
+user-settings.json
+user-settings.json.*.tmp
 *.user
 /Bridge.lib
 /Bridge.exp

@@ -4,7 +4,7 @@ namespace GamePadT9;
 
 [Flags] internal enum Buttons : ushort
 {
-    Left = 4, Right = 8, Menu = 16, View = 32, R3 = 128,
+    Left = 4, Right = 8, Menu = 16, View = 32, L3 = 64, R3 = 128,
     LB = 256, RB = 512, A = 4096, B = 8192, X = 16384, Y = 32768
 }
 [StructLayout(LayoutKind.Sequential)] internal struct Gamepad
@@ -19,6 +19,7 @@ internal readonly record struct PadEvent(PadAction Action, int Region = 4, bool 
 
 internal sealed class Controller
 {
+    private ControlSide stick = ControlSide.Right, trigger = ControlSide.Right;
     private Gamepad previous;
     private bool initialized, triggerHeld, chordHeld, longB;
     private long bSince;
@@ -38,15 +39,24 @@ internal sealed class Controller
         return 1;
     }
     public void Reset() { initialized = triggerHeld = chordHeld = longB = false; row = column = 1; repeating = 0; }
+    public void Configure(UserSettings settings)
+    {
+        settings.Validate();
+        if (stick == settings.Stick && trigger == settings.Trigger) return;
+        stick = settings.Stick; trigger = settings.Trigger; Reset();
+    }
     public List<PadEvent> Update(Gamepad pad, long now)
     {
         var events = new List<PadEvent>();
         var stableRegion = Region;
-        column = Axis(pad.RX, column); row = Axis(-(int)pad.RY, row);
+        column = Axis(stick == ControlSide.Left ? pad.LX : pad.RX, column);
+        row = Axis(-(int)(stick == ControlSide.Left ? pad.LY : pad.RY), row);
+        var triggerValue = trigger == ControlSide.Left ? pad.LT : pad.RT;
+        var stickButton = stick == ControlSide.Left ? Buttons.L3 : Buttons.R3;
         var chord = (pad.Buttons & (Buttons.Menu | Buttons.View)) == (Buttons.Menu | Buttons.View);
         if (!initialized)
         {
-            initialized = true; previous = pad; triggerHeld = pad.RT >= 100; chordHeld = chord;
+            initialized = true; previous = pad; triggerHeld = triggerValue >= 100; chordHeld = chord;
             bSince = now; longB = (pad.Buttons & Buttons.B) != 0;
             return events;
         }
@@ -59,9 +69,9 @@ internal sealed class Controller
             return false;
         }
         if ((pad.Buttons & repeating) == 0) repeating = 0;
-        var rtDown = !triggerHeld && pad.RT >= 160;
-        if (pad.RT >= 160) triggerHeld = true;
-        else if (pad.RT <= 100) triggerHeld = false;
+        var triggerDown = !triggerHeld && triggerValue >= 160;
+        if (triggerValue >= 160) triggerHeld = true;
+        else if (triggerValue <= 100) triggerHeld = false;
         if (chord && !chordHeld) events.Add(new(PadAction.Toggle));
         if (Down(Buttons.B)) { bSince = now; longB = false; }
         if ((pad.Buttons & Buttons.B) != 0 && !longB && now - bSince >= 1000)
@@ -77,7 +87,7 @@ internal sealed class Controller
             else if (PressOrRepeat(Buttons.RB)) events.Add(new(PadAction.Next));
             else if (Down(Buttons.Left)) events.Add(new(PadAction.PagePrevious));
             else if (Down(Buttons.Right)) events.Add(new(PadAction.PageNext));
-            else if (rtDown || Down(Buttons.R3)) events.Add(new(PadAction.Region, Down(Buttons.R3) ? stableRegion : Region, Down(Buttons.R3)));
+            else if (triggerDown || Down(stickButton)) events.Add(new(PadAction.Region, Down(stickButton) ? stableRegion : Region, Down(stickButton)));
         }
         previous = pad; chordHeld = chord; return events;
     }

@@ -17,7 +17,7 @@ $installRoot = Join-Path $protectedRoot 'GamePadT9\standalone'
 $manifest = Join-Path $installRoot 'installation.json'
 try {
     if ($Unregister) {
-        $planned = @(Get-Content -LiteralPath $manifest -Encoding UTF8 -Raw | ConvertFrom-Json)
+        $planned = @((Get-Content -LiteralPath $manifest -Encoding UTF8 -Raw | ConvertFrom-Json))
     } else {
         $planned = @()
         foreach ($architecture in @('x64','x86')) {

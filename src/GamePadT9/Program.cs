@@ -23,6 +23,12 @@ internal static class Program
             if (!first) throw new InvalidOperationException("GamePad T9 已在运行。请先关闭已有实例。");
             using var engine = new RimeEngine(Settings.Load(root));
             if (args.Contains("--self-test")) return Validation.Run(root, engine);
+            if (args.Contains("--verify-settings"))
+            {
+                using var verification = new SettingsValidation(root, engine);
+                System.Windows.Forms.Application.Run(verification);
+                return verification.Result;
+            }
             if (args.Contains("--verify-backspace"))
             {
                 using var verification = new BackspaceValidation(root, engine, args.Contains("--x86"), args.Contains("--xiaobai"));
@@ -42,6 +48,12 @@ internal static class Program
                 return verification.Result;
             }
             using var host = new GamePadApplication(engine, root);
+            if (args.Contains("--settings"))
+            {
+                EventHandler? show = null;
+                show = async (_, _) => { System.Windows.Forms.Application.Idle -= show; await host.OpenSettings(); };
+                System.Windows.Forms.Application.Idle += show;
+            }
             System.Windows.Forms.Application.Run(host);
             return 0;
         }

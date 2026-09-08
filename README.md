@@ -45,7 +45,31 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Editor -St
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/register-standalone.ps1 -Unregister
 ```
 
+## 设置
+
+点击输入面板右上方的 **设置**，或在托盘图标菜单选择 **设置…**。摇杆和扳机可以独立选择，界面提示会跟随更新。
+
+| 设置项 | 默认值 | 可调整范围 |
+|---|---|---|
+| 选择九宫格区域 | 右摇杆 | 左摇杆 / 右摇杆 |
+| 确认区域输入 | 右扳机 RT | 左扳机 LT / 右扳机 RT |
+| 面板背景可见度 | 50% | 0–100% |
+| 九宫格可见度 | 80% | 0–100% |
+| 高亮区域可见度 | 90% | 0–100%，用于九格及候选高亮 |
+
+**可见度越高越清晰**：0% 完全透明，100% 完全不透明。三个区域的可见度独立生效，文字保持清晰。设置窗口提供实时效果预览，可拖动滑块或填写百分比。
+
+选择左摇杆后，L3 负责按下摇杆输入；选择右摇杆后使用 R3。数字模式下，所选摇杆按下输入 0，所选扳机输入区域数字 1–9。未选中的摇杆和扳机不触发区域输入。
+
+打开设置会关闭本轮手柄输入并恢复原输入法。点击 **保存** 后，在目标文本框按 View + Menu 重新开启输入。**恢复默认** 修改当前表单，点击保存后生效；取消保留原设置。
+
+设置保存到项目目录的 `user-settings.json`，下次启动自动加载。首次启动采用上述默认值；配置损坏时会提示并使用默认值。也可用 `artifacts/app/GamePadT9.exe --settings` 启动并打开设置窗口。
+
+截图：[设置窗口](artifacts/settings-window.png)、[透明面板效果](artifacts/overlay-transparency.png)。
+
 ## 按键和布局
+
+下表为默认的右摇杆与右扳机配置。修改设置后，RT、R3 分别对应所选扳机和摇杆按下动作。
 
 | 按键 | 九键模式 | 数字模式 |
 |---|---|---|
@@ -92,6 +116,8 @@ Y 切换到数字模式会暂存九键编码，在同一文本框返回九键模
 自动切换通过 `GetGUIThreadInfo().hwndFocus` 找到实际接收键盘输入的控件，再使用一个短时、指定线程的 Windows 消息钩子，在该控件所属线程中调用 TSF API，读取原输入法的完整标识（或英文等键盘布局句柄），并执行切换和恢复。辅助组件在目标线程再次检查焦点；C# 只连接同一输入线程的 TSF 端点。32 位和 64 位目标使用各自的辅助组件。它不是键盘钩子，不记录按键，也不模拟 Win + Space、Alt + Shift 等快捷键；请求完成即卸下钩子。
 
 接口依据：[GetGUIThreadInfo](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getguithreadinfo)、[SetWindowsHookEx](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowshookexw)、[GetActiveProfile](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfinputprocessorprofilemgr-getactiveprofile)、[ActivateProfile](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfinputprocessorprofilemgr-activateprofile)。
+
+面板通过 [UpdateLayeredWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-updatelayeredwindow) 使用每个像素的 Alpha 合成；背景、九格、高亮分别绘制自己的可见度，保持置顶及不抢输入焦点的行为。
 
 九键模式直接调用 Rime API，中文和标点通过 TSF 处理，不模拟拼音按键或粘贴。Rime 内部的 `KP_*` 编码只是函数参数，不会发送到 Windows 键盘队列。正在输入的拼音编码由引擎直接退格，不发送 Backspace。
 
@@ -151,6 +177,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Editor -In
 
 构建产物使用带哈希的目录，当前路径记录在 `artifacts/xiaobai-x64-path.txt` 和 `artifacts/xiaobai-x86-path.txt`。`build.ps1` 同时构建 x64 / x86 输入法切换辅助组件，路径记录在 `artifacts/input-method-<架构>-path.txt`；这些辅助组件无需注册。只改 C# 时可以运行 `scripts/build.ps1 -SkipXiaobai -SkipInputMethodControl`。
 
+界面设置、控制映射及透明效果检查：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Settings
+```
+
+该检查覆盖四种左右摇杆 / 扳机组合、未选控制不触发输入、切换配置时的按住保护、真实设置控件保存 / 取消 / 恢复默认、配置加载，以及叠加在独立测试窗口上的实际屏幕像素。检查使用临时配置，不更改用户保存的设置。
+
 自动切换和恢复的专项检查：
 
 ```powershell
@@ -182,6 +216,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace 
 | 测试 | 报告 |
 |---|---|
 | 基础控制器和原版引擎 | [self-test.json](artifacts/self-test.json) |
+| 设置、左右控制组合及真实透明合成 | [settings-verification.json](artifacts/settings-verification.json) |
 | x64 隔离组件 | [editor-isolated-verification.json](artifacts/editor-isolated-verification.json) |
 | x86 隔离组件 | [editor-x86-isolated-verification.json](artifacts/editor-x86-isolated-verification.json) |
 | x64 实际安装组件 | [editor-verification.json](artifacts/editor-verification.json) |
@@ -231,6 +266,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace 
 | `src/GamePadT9/BackspaceInput.cs` | 带焦点和修饰键检查的 Backspace 兼容处理 |
 | `src/GamePadT9/TsfClient.cs` | 带焦点令牌、请求编号和回执的跨进程命令 |
 | `src/GamePadT9/InputMethodSwitcher.cs` | 原输入法记录、自动切换、窗口跟随和恢复 |
+| `src/GamePadT9/UserSettings.cs` | 左右控制及可见度设置的保存、加载和默认值 |
+| `src/GamePadT9/SettingsForm.cs` | 设置窗口与可见度实时预览 |
+| `src/GamePadT9/LayeredWindow.cs` | 独立区域可见度的透明窗口合成 |
+| `src/GamePadT9/SettingsValidation.cs` | 控制映射、设置持久化及实际屏幕像素验证 |
 | `native/InputMethodControl.cpp` | 在目标线程读取及切换 TSF 输入法的短时消息钩子 |
 | `scripts/build-input-method.ps1` | 构建两种架构的输入法切换辅助组件 |
 | `src/GamePadT9/InputMethodValidation.cs` | 自动切换和恢复的端到端检查 |

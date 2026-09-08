@@ -12,16 +12,24 @@ internal sealed class GamePadApplication : ApplicationContext
     private readonly NotifyIcon tray;
     private readonly ToolStripMenuItem toggle;
     private readonly InputMethodSwitcher inputMethods;
+    private readonly string root;
+    private UserSettings preferences;
+    private SettingsForm? settingsForm;
     private uint? slot;
     private long focusCheck;
-    private bool ticking, exiting;
+    private bool ticking, exiting, openingSettings;
     public GamePadApplication(RimeEngine engine, string root)
     {
+        this.root = root;
+        preferences = UserSettings.Load(root, out var warning);
         inputMethods = new(root);
-        session = new(engine, inputMethods); overlay = new(session);
+        session = new(engine, inputMethods) { Preferences = preferences }; overlay = new(session);
+        controller.Configure(preferences);
+        overlay.SettingsRequested += async () => await OpenSettings();
         var menu = new ContextMenuStrip();
         toggle = new("开启输入", null, async (_, _) => await ToggleFromTray());
         menu.Items.Add(toggle);
+        menu.Items.Add("设置…", null, async (_, _) => await OpenSettings());
         menu.Items.Add("退出", null, (_, _) => ExitThread());
         tray = new NotifyIcon { Icon = SystemIcons.Application, Text = "GamePad T9 · View + Menu 开启", ContextMenuStrip = menu, Visible = true };
         tray.DoubleClick += async (_, _) => await ToggleFromTray();
@@ -29,9 +37,32 @@ internal sealed class GamePadApplication : ApplicationContext
         session.Changed += () => { toggle.Text = session.Enabled ? "关闭输入" : "开启输入"; overlay.Present(controller.Region, slot); };
         timer.Tick += Tick;
         timer.Start();
+        if (warning != null) tray.ShowBalloonTip(5000, "GamePad T9", warning, ToolTipIcon.Warning);
+    }
+    internal async Task OpenSettings()
+    {
+        if (exiting || openingSettings) return;
+        if (settingsForm != null) { settingsForm.Activate(); return; }
+        openingSettings = true;
+        try
+        {
+            await session.ShutdownAsync();
+            if (exiting) return;
+            controller.Reset();
+            var form = new SettingsForm(preferences, value =>
+            {
+                value.Save(root); preferences = value;
+                controller.Configure(value); overlay.ApplySettings(value);
+            });
+            settingsForm = form;
+            form.FormClosed += (_, _) => { settingsForm = null; controller.Reset(); form.Dispose(); };
+            form.Show(); form.Activate();
+        }
+        finally { openingSettings = false; }
     }
     private async Task ToggleFromTray()
     {
+        if (openingSettings || settingsForm != null) return;
         if (!session.Enabled && !session.Busy)
         {
             await Task.Delay(50); // Let the tray menu close before returning focus.
@@ -41,7 +72,7 @@ internal sealed class GamePadApplication : ApplicationContext
     }
     private async void Tick(object? sender, EventArgs e)
     {
-        if (ticking || exiting) return;
+        if (ticking || exiting || openingSettings || settingsForm != null) return;
         ticking = true;
         try
         {
@@ -62,6 +93,7 @@ internal sealed class GamePadApplication : ApplicationContext
     {
         if (exiting) return;
         exiting = true; timer.Stop();
+        settingsForm?.Close();
         await session.ShutdownAsync();
         tray.Visible = false; overlay.Close();
         base.ExitThreadCore();
@@ -71,6 +103,7 @@ internal sealed class GamePadApplication : ApplicationContext
         if (disposing)
         {
             timer.Stop();
+            settingsForm?.Dispose();
             // Covers WM_QUIT / orderly message-loop shutdown as well as the tray path.
             if (inputMethods.HasSavedProfiles)
                 try { inputMethods.RestoreAsync().GetAwaiter().GetResult(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }

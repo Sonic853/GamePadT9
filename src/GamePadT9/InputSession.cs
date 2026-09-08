@@ -10,6 +10,8 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
     private readonly SymbolMenu symbols = new();
     public bool Enabled { get; private set; }
     public bool Busy { get; private set; }
+    internal UserSettings Preferences { get; set; } = new();
+    private string NumericHint => $"{Preferences.TriggerLabel} 输入 1–9 · {Preferences.StickClickLabel} 输入 0";
     public InputMode Mode { get; private set; }
     public EngineView View => Mode == InputMode.T9 ? (symbols.Visible ? symbols.View : engine.View) : EngineView.Empty;
     public string Message { get; private set; } = "View + Menu 开启输入";
@@ -26,7 +28,7 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
             ClearComposition(); NumberHistory = "";
             if (enabled)
             {
-                Message = inputMethods == null ? "右摇杆选区 · RT 输入 · Y 切换模式" : await inputMethods.StartAsync();
+                Message = inputMethods == null ? $"{Preferences.StickLabel}选区 · {Preferences.TriggerLabel} 输入 · Y 切换模式" : await inputMethods.StartAsync();
                 Enabled = true;
             }
             else
@@ -88,7 +90,7 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
         if (action.Action == PadAction.SwitchMode)
         {
             await CheckFocus(); Mode = Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9;
-            Message = Mode == InputMode.Numeric ? "RT 输入 1–9 · R3 输入 0" : "九键输入 · A 确认高亮候选";
+            Message = Mode == InputMode.Numeric ? NumericHint : "九键输入 · A 确认高亮候选";
             Changed?.Invoke(); return;
         }
         try
@@ -151,7 +153,7 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
                     case PadAction.PageNext: engine.Process(0xFF56); break;
                 }
             }
-            Message = Mode == InputMode.T9 ? "A 选词 · LB / RB 翻选 · 十字键左右翻页" : "RT 输入 1–9 · R3 输入 0";
+            Message = Mode == InputMode.T9 ? "A 选词 · LB / RB 翻选 · 十字键左右翻页" : NumericHint;
             // Render candidates before waiting for an asynchronous edit session.
             Changed?.Invoke();
             if (engine.PendingCommit.Length > 0 && boundTarget is Target commitTarget)
