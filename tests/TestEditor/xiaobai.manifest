@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity type="win32" name="GamePadT9.Xiaobai.Test" version="1.0.0.0" processorArchitecture="*" />
+  <file name="weasel.dll">
+    <comClass clsid="{A3F4CDED-B1E9-41EE-9CA6-7B4D0DE6CB0A}" threadingModel="Apartment" />
+  </file>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security><requestedPrivileges><requestedExecutionLevel level="asInvoker" uiAccess="false" /></requestedPrivileges></security>
+  </trustInfo>
+</assembly>

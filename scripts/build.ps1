@@ -1,33 +1,20 @@
-param([switch]$Prepare)
+param([switch]$Prepare, [switch]$SkipXiaobai, [switch]$Standalone, [switch]$SkipInputMethodControl)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if ($Prepare) { & (Join-Path $PSScriptRoot 'prepare.ps1') }
-$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-$vsPath = & $vswhere -latest -prerelease -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-if (!$vsPath) { throw 'Visual C++ x64 tools are required.' }
-$nativeOut = Join-Path $projectRoot 'artifacts\native'
-New-Item -ItemType Directory -Force $nativeOut | Out-Null
-$vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvars64.bat'
-# A fixed batch file imports the MSVC environment. No destructive file operations.
-$batch = @"
-@echo off
-call "$vcvars" >nul
-if errorlevel 1 exit /b 1
-cl /nologo /std:c++20 /utf-8 /EHsc /W4 /MT /O2 /LD "$projectRoot\native\Bridge.cpp" /Fo"$nativeOut\Bridge.obj" /link /DEF:"$projectRoot\native\Bridge.def" /IMPLIB:"$nativeOut\Bridge.lib" /OUT:"$nativeOut\GamePadT9.TextService.dll" user32.lib advapi32.lib ole32.lib uuid.lib
-if errorlevel 1 exit /b 1
-cl /nologo /std:c++20 /utf-8 /EHsc /W4 /MT /O2 "$projectRoot\native\Control.cpp" /Fo"$nativeOut\Control.obj" /link /OUT:"$nativeOut\BridgeControl.exe"
-exit /b %errorlevel%
-"@
-$batchPath = Join-Path $nativeOut 'build-native.cmd'
-[IO.File]::WriteAllText($batchPath, $batch, [Text.Encoding]::Default)
-& $env:ComSpec /d /c $batchPath
-if ($LASTEXITCODE -ne 0) { throw 'Native bridge build failed.' }
-dotnet build (Join-Path $projectRoot 'src\GamePadT9\GamePadT9.csproj') -c Release -o (Join-Path $projectRoot 'artifacts\app') --nologo
-if ($LASTEXITCODE -ne 0) { throw 'C# build failed.' }
-$bridgeHash = (Get-FileHash -LiteralPath (Join-Path $nativeOut 'GamePadT9.TextService.dll') -Algorithm SHA256).Hash.Substring(0,16)
-$bridgeFolder = Join-Path $projectRoot "artifacts\tsf\$bridgeHash"
-if (!(Test-Path -LiteralPath $bridgeFolder)) {
-    New-Item -ItemType Directory -Force $bridgeFolder | Out-Null
-    Copy-Item -LiteralPath (Join-Path $nativeOut 'GamePadT9.TextService.dll'),(Join-Path $nativeOut 'BridgeControl.exe') -Destination $bridgeFolder
+if (!$SkipXiaobai) {
+    & (Join-Path $PSScriptRoot 'build-xiaobai.ps1') -Architecture x64
+    & (Join-Path $PSScriptRoot 'build-xiaobai.ps1') -Architecture x86
 }
-[IO.File]::WriteAllText((Join-Path $projectRoot 'artifacts\app\bridge-path.txt'), $bridgeFolder)
+if ($Standalone) {
+    & (Join-Path $PSScriptRoot 'build-standalone.ps1') -Architecture x64
+    & (Join-Path $PSScriptRoot 'build-standalone.ps1') -Architecture x86
+}
+$out = Join-Path $projectRoot 'artifacts\app'
+if (!$SkipInputMethodControl) {
+    & (Join-Path $PSScriptRoot 'build-input-method.ps1') -Architecture x64
+    & (Join-Path $PSScriptRoot 'build-input-method.ps1') -Architecture x86
+}
+New-Item -ItemType Directory -Force $out | Out-Null
+dotnet build (Join-Path $projectRoot 'src\GamePadT9\GamePadT9.csproj') -c Release -o $out --nologo
+if ($LASTEXITCODE -ne 0) { throw 'C# build failed.' }

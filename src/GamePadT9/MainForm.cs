@@ -134,7 +134,7 @@ internal sealed class MainForm : Form
         base.OnMouseDown(e);
         if (e.Button != MouseButtons.Left) return;
         var point = new PointF(e.X / scale, e.Y / scale);
-        if (closeRect.Contains(point)) { session.Enable(false); return; }
+        if (closeRect.Contains(point)) { await session.Enable(false); return; }
         if (modeRect.Contains(point)) { await session.Handle(new(PadAction.SwitchMode)); return; }
         if (point.Y < 82) { dragging = true; dragOrigin = Cursor.Position; windowOrigin = Location; Capture = true; return; }
         for (var i = 0; i < 9; i++)

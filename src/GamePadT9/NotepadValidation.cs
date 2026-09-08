@@ -14,12 +14,14 @@ internal sealed class NotepadValidation : Form
     private readonly string root;
     private readonly RimeEngine engine;
     private readonly bool useTestEditor;
+    private readonly bool isolated, editorX86, standalone;
     private Process? ownedEditor;
     internal int Result { get; private set; } = 1;
     protected override bool ShowWithoutActivation => true;
-    public NotepadValidation(string root, RimeEngine engine, bool useTestEditor = false)
+    public NotepadValidation(string root, RimeEngine engine, bool useTestEditor = false, bool isolated = false, bool editorX86 = false, bool standalone = false)
     {
         this.root = root; this.engine = engine; this.useTestEditor = useTestEditor;
+        this.isolated = isolated; this.editorX86 = editorX86; this.standalone = standalone;
         ShowInTaskbar = false; Opacity = 0; Width = Height = 1;
         StartPosition = FormStartPosition.Manual; Location = new System.Drawing.Point(-2000, -2000);
         Shown += async (_, _) =>
@@ -33,14 +35,17 @@ internal sealed class NotepadValidation : Form
             finally { if (ownedEditor != null) { if (!ownedEditor.HasExited) ownedEditor.CloseMainWindow(); ownedEditor.Dispose(); } Close(); }
         };
     }
-    private string ReportPath => Path.Combine(root, "artifacts", useTestEditor ? "editor-verification.json" : "notepad-verification.json");
+    private string ReportPath => Path.Combine(root, "artifacts", useTestEditor ? $"editor{(standalone ? "-standalone" : "")}{(editorX86 ? "-x86" : "")}{(isolated ? "-isolated" : "")}-verification.json" : "notepad-verification.json");
     private async Task Run()
     {
         var name = "GamePadT9-TSF-" + DateTime.Now.ToString("yyyyMMdd-HHmmss");
         var file = Path.Combine(root, "artifacts", name + ".txt");
         File.WriteAllText(file, "", new UTF8Encoding(false));
-        var start = new ProcessStartInfo(useTestEditor ? Path.Combine(root, "artifacts", "test-editor", "TestEditor.exe") : "notepad.exe") { UseShellExecute = true };
+        var editorFolder = "test-editor" + (standalone ? "-standalone" : isolated ? "" : "-installed") + (editorX86 ? "-x86" : "");
+        var start = new ProcessStartInfo(useTestEditor ? Path.Combine(root, "artifacts", editorFolder, "TestEditor.exe") : "notepad.exe") { UseShellExecute = true };
         start.ArgumentList.Add(file);
+        if (isolated) start.ArgumentList.Add("--isolated");
+        if (standalone) start.ArgumentList.Add("--standalone");
         var launched = Process.Start(start);
         if (useTestEditor) ownedEditor = launched;
         else launched?.Dispose();
@@ -62,8 +67,8 @@ internal sealed class NotepadValidation : Form
         await Task.Delay(200);
         var before = Read(editor);
         if (!string.IsNullOrWhiteSpace(before)) throw new Exception("验证文档非空，停止写入。");
-        if (Program.Control("activate") != 0) throw new Exception("无法激活验证输入法。");
-        SetForegroundWindow(hwnd); editor.SetFocus();
+        // The owned editor activates the requested input profile for its own process only.
+        // Notepad tests use the user's existing selection; no desktop-wide switch.
         Target? target = null;
         for (var i = 0; i < 100; i++)
         {
@@ -71,10 +76,31 @@ internal sealed class NotepadValidation : Form
             if (target?.Foreground == hwnd) break;
             await Task.Delay(100);
         }
-        if (target == null || target.Value.Foreground != hwnd) throw new Exception("记事本没有加载 TSF 桥接组件。请重新打开记事本或手动选择 GamePad T9 验证。");
+        if (target == null || target.Value.Foreground != hwnd) throw new Exception("目标程序没有加载手柄输入组件。请重新打开程序并选择小白 T9 或 GamePad T9。");
+        if (useTestEditor && target.Value.Backend != (standalone ? InputBackend.Standalone : InputBackend.Xiaobai))
+            throw new Exception("测试连接到了错误的输入法入口。");
+        string? componentSha256 = null, componentPath = null;
+        if (useTestEditor)
+        {
+            for (var i = 0; i < 40 && !File.Exists(file + ".component.json"); i++) await Task.Delay(50);
+            using var metadata = JsonDocument.Parse(File.ReadAllText(file + ".component.json"));
+            componentSha256 = metadata.RootElement.GetProperty("sha256").GetString();
+            componentPath = metadata.RootElement.GetProperty("path").GetString();
+            var componentKind = standalone ? "standalone" : "xiaobai";
+            var release = File.ReadAllText(Path.Combine(root, "artifacts", $"{componentKind}-{(editorX86 ? "x86" : "x64")}-path.txt")).Trim();
+            var expectedHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(release, standalone ? "GamePadT9.TextService.dll" : "weasel-gamepad.dll"))));
+            if (componentSha256 != expectedHash) throw new Exception("目标编辑器加载的组件不是当前构建版本。");
+            if (!isolated)
+            {
+                using var installed = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "artifacts", componentKind + "-installation.json")));
+                var expectedPath = installed.RootElement.EnumerateArray().Single(e => e.GetProperty("architecture").GetString() == (editorX86 ? "x86" : "x64")).GetProperty("destination").GetString();
+                if (!string.Equals(componentPath, expectedPath, StringComparison.OrdinalIgnoreCase))
+                    throw new Exception("安装验证加载了其他目录的 DLL：" + componentPath);
+            }
+        }
         var session = new InputSession(engine);
         using var overlay = new MainForm(session);
-        session.Enable(true);
+        await session.Enable(true);
         overlay.Present(4, 0);
         await Task.Delay(150);
         if (!overlay.Visible || TsfClient.GetForegroundWindow() != hwnd)
@@ -158,6 +184,9 @@ internal sealed class NotepadValidation : Form
         var report = new
         {
             time = DateTimeOffset.Now, passed = true, completedAllChecks = backspaceVerified, scratchFile = file,
+            xiaobaiProfileUsed = target.Value.Backend == InputBackend.Xiaobai, standaloneProfileUsed = target.Value.Backend == InputBackend.Standalone,
+            isolatedComponent = isolated, editorArchitecture = editorX86 ? "x86" : "x64",
+            componentSha256, componentPath,
             targetApplication = useTestEditor ? "WPF test editor" : "Notepad",
             targetProcess = target.Value.Process, targetWindow = $"0x{hwnd:X}", before, after,
             input = "Synthetic XInput state samples -> production Controller -> original installed librime -> production TSF client",

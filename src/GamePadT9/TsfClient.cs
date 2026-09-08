@@ -3,24 +3,36 @@ using System.Text;
 
 namespace GamePadT9;
 
-internal readonly record struct Target(nint Endpoint, nint Foreground, uint Epoch, uint Process);
+internal enum InputBackend { Xiaobai, Standalone }
+internal readonly record struct Target(nint Endpoint, nint Foreground, uint Epoch, uint Process, InputBackend Backend);
 internal sealed class TsfClient
 {
     private const uint ProbeMessage = 0x8000 + 91, ReceiptMessage = 0x8000 + 92;
     private uint request = (uint)Random.Shared.Next(1, int.MaxValue);
     public bool LastOutcomeUncertain { get; private set; }
     public static bool SupportsBackspace(Target target) => Send(target.Endpoint, 0x8000 + 94, 0, 0, out var flags) && (flags & 2) != 0;
+    public static bool AllowNumeric(Target target)
+    {
+        if (FindTarget() != target) return false;
+        // The standalone TIP has no key sink, so NumPad events reach the editor directly.
+        if (target.Backend == InputBackend.Standalone) return true;
+        return Send(target.Endpoint, 0x8000 + 95, unchecked((nint)target.Epoch), 0, out var result) && result == 1;
+    }
     public static Target? FindTarget()
     {
         var foreground = GetForegroundWindow();
         GetWindowThreadProcessId(foreground, out var pid);
-        nint endpoint = 0;
-        while ((endpoint = FindWindowEx(new nint(-3), endpoint, "GamePadT9.TextService.v1", null)) != 0)
+        foreach (var backend in new[] { InputBackend.Xiaobai, InputBackend.Standalone })
         {
-            GetWindowThreadProcessId(endpoint, out var endpointPid);
-            if (endpointPid != pid) continue;
-            if (Send(endpoint, ProbeMessage, 0, 0, out var token) && token is > 0 and <= int.MaxValue)
-                return new(endpoint, foreground, (uint)token, pid);
+            var className = backend == InputBackend.Xiaobai ? "GamePadT9.Xiaobai.v1" : "GamePadT9.TextService.v1";
+            nint endpoint = 0;
+            while ((endpoint = FindWindowEx(new nint(-3), endpoint, className, null)) != 0)
+            {
+                GetWindowThreadProcessId(endpoint, out var endpointPid);
+                if (endpointPid != pid) continue;
+                if (Send(endpoint, ProbeMessage, 0, 0, out var token) && token is > 0 and <= int.MaxValue)
+                    return new(endpoint, foreground, (uint)token, pid, backend);
+            }
         }
         return null;
     }

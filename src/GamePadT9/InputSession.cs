@@ -1,7 +1,7 @@
 namespace GamePadT9;
 
 // One coordinator shared by the interactive host and end-to-end UI tests.
-internal sealed class InputSession(RimeEngine engine)
+internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? inputMethods = null)
 {
     private readonly TsfClient tsf = new();
     private Target? boundTarget;
@@ -15,26 +15,71 @@ internal sealed class InputSession(RimeEngine engine)
     public string Message { get; private set; } = "View + Menu 开启输入";
     public string NumberHistory { get; private set; } = "";
     public event Action? Changed;
-    public void Enable(bool enabled)
+    public event Action<string>? Error;
+    public async Task Enable(bool enabled)
     {
         if (Busy) { if (!enabled) disableAfterCommit = true; return; }
         if (Enabled == enabled) return;
-        Enabled = enabled;
-        ClearComposition(); NumberHistory = "";
-        Message = enabled ? "右摇杆选区 · RT 输入 · Y 切换模式" : "输入已关闭";
-        Changed?.Invoke();
+        Busy = true;
+        try
+        {
+            ClearComposition(); NumberHistory = "";
+            if (enabled)
+            {
+                Message = inputMethods == null ? "右摇杆选区 · RT 输入 · Y 切换模式" : await inputMethods.StartAsync();
+                Enabled = true;
+            }
+            else
+            {
+                Enabled = false; Changed?.Invoke();
+                if (inputMethods != null) await inputMethods.RestoreAsync();
+                Message = "输入已关闭，已恢复原输入法";
+            }
+        }
+        catch (Exception ex)
+        {
+            Enabled = false; Message = ex.Message;
+            if (enabled && inputMethods != null)
+                try { await inputMethods.RestoreAsync(); } catch (Exception restore) { Message += "；" + restore.Message; }
+            Error?.Invoke(Message);
+        }
+        finally
+        {
+            Busy = false; Changed?.Invoke();
+            if (disableAfterCommit) { disableAfterCommit = false; await Enable(false); }
+        }
     }
-    public void CheckFocus()
+    public async Task CheckFocus()
     {
-        if (!Enabled || Busy || boundTarget == null || engine.PendingCommit.Length != 0 || submissionUnconfirmed) return;
+        if (!Enabled || Busy || engine.PendingCommit.Length != 0 || submissionUnconfirmed) return;
+        if (inputMethods?.NeedsForegroundSwitch == true)
+        {
+            Busy = true;
+            try { ClearComposition(); Message = await inputMethods.FollowAsync() ?? Message; }
+            catch (Exception ex) { Message = ex.Message; Error?.Invoke(Message); }
+            finally
+            {
+                Busy = false; Changed?.Invoke();
+                if (disableAfterCommit) { disableAfterCommit = false; await Enable(false); }
+            }
+        }
+        if (boundTarget == null) return;
         if (TsfClient.FindTarget() != boundTarget)
         { ClearComposition(); Message = "焦点已切换，未提交的编码已取消"; Changed?.Invoke(); }
+    }
+    public async Task ShutdownAsync()
+    {
+        await Enable(false);
+        while (Busy) await Task.Delay(20);
+        await Enable(false);
+        if (inputMethods?.HasSavedProfiles == true)
+            try { await inputMethods.RestoreAsync(); } catch (Exception ex) { Error?.Invoke(ex.Message); }
     }
     private void ClearComposition() { engine.Clear(); symbols.Close(); boundTarget = null; submissionUnconfirmed = false; }
     public async Task Handle(PadEvent action, int? candidateIndex = null)
     {
-        if (action.Action == PadAction.Toggle) { Enable(!Enabled); return; }
-        if (action.Action == PadAction.Disable) { Enable(false); return; }
+        if (action.Action == PadAction.Toggle) { await Enable(!Enabled && !Busy); return; }
+        if (action.Action == PadAction.Disable) { await Enable(false); return; }
         if (!Enabled || Busy) return;
         if (action.Action == PadAction.Cancel)
         { ClearComposition(); Message = "候选已关闭"; Changed?.Invoke(); return; }
@@ -42,14 +87,14 @@ internal sealed class InputSession(RimeEngine engine)
         { Message = "请检查上次提交结果，按 B 清除后继续"; Changed?.Invoke(); return; }
         if (action.Action == PadAction.SwitchMode)
         {
-            CheckFocus(); Mode = Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9;
+            await CheckFocus(); Mode = Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9;
             Message = Mode == InputMode.Numeric ? "RT 输入 1–9 · R3 输入 0" : "九键输入 · A 确认高亮候选";
             Changed?.Invoke(); return;
         }
         try
         {
             var target = TsfClient.FindTarget();
-            if (target == null) { Message = "请在文本框选择「GamePad T9 验证」输入法"; return; }
+            if (target == null) { Message = "请选择小白 T9 或 GamePad T9；键盘组词请先完成或取消"; return; }
             if (boundTarget != null && boundTarget != target) ClearComposition();
             if (Mode == InputMode.Numeric && action.Action == PadAction.Region)
             {
@@ -123,7 +168,7 @@ internal sealed class InputSession(RimeEngine engine)
         finally
         {
             Busy = false;
-            if (disableAfterCommit) { disableAfterCommit = false; Enable(false); }
+            if (disableAfterCommit) { disableAfterCommit = false; await Enable(false); }
             Changed?.Invoke();
         }
     }

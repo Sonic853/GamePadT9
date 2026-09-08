@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
@@ -15,7 +14,8 @@ internal static class Program
         {
             Console.OutputEncoding = new UTF8Encoding(false);
             Console.InputEncoding = new UTF8Encoding(false);
-            if (args.Length == 1 && args[0] is "--register" or "--unregister" or "--activate") return Control(args[0][2..]);
+            if (args.Length == 1 && args[0] is "--register" or "--unregister" or "--activate")
+                throw new InvalidOperationException("请使用 View + Menu 开启输入并自动切换输入法。联动组件使用 scripts/install-xiaobai.ps1；独立条目使用 scripts/register-standalone.ps1。");
             System.Windows.Forms.Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
             System.Windows.Forms.Application.EnableVisualStyles();
             var root = Settings.FindRoot();
@@ -23,13 +23,19 @@ internal static class Program
             if (!first) throw new InvalidOperationException("GamePad T9 已在运行。请先关闭已有实例。");
             using var engine = new RimeEngine(Settings.Load(root));
             if (args.Contains("--self-test")) return Validation.Run(root, engine);
-            if (args.Contains("--verify-notepad") || args.Contains("--verify-editor"))
+            if (args.Contains("--verify-input-method"))
             {
-                using var verification = new NotepadValidation(root, engine, args.Contains("--verify-editor"));
+                using var verification = new InputMethodValidation(root, engine, args.Contains("--x86"));
                 System.Windows.Forms.Application.Run(verification);
                 return verification.Result;
             }
-            using var host = new GamePadApplication(engine);
+            if (args.Contains("--verify-notepad") || args.Contains("--verify-editor"))
+            {
+                using var verification = new NotepadValidation(root, engine, args.Contains("--verify-editor"), args.Contains("--isolated"), args.Contains("--x86"), args.Contains("--standalone"));
+                System.Windows.Forms.Application.Run(verification);
+                return verification.Result;
+            }
+            using var host = new GamePadApplication(engine, root);
             System.Windows.Forms.Application.Run(host);
             return 0;
         }
@@ -39,17 +45,6 @@ internal static class Program
             if (!headless) MessageBox.Show(ex.Message, "GamePad T9", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 1;
         }
-    }
-    internal static int Control(string action)
-    {
-        var locationFile = Path.Combine(AppContext.BaseDirectory, "bridge-path.txt");
-        var bridgeFolder = File.Exists(locationFile) ? File.ReadAllText(locationFile).Trim() : AppContext.BaseDirectory;
-        var info = new ProcessStartInfo(Path.Combine(bridgeFolder, "BridgeControl.exe"))
-        { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden, RedirectStandardOutput = true, RedirectStandardError = true };
-        info.ArgumentList.Add(action);
-        using var process = Process.Start(info) ?? throw new IOException("无法启动 TSF 注册工具。");
-        var output = process.StandardOutput.ReadToEnd(); var error = process.StandardError.ReadToEnd(); process.WaitForExit();
-        Console.Write(output); Console.Error.Write(error); return process.ExitCode;
     }
 }
 

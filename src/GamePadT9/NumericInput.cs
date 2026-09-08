@@ -19,10 +19,13 @@ internal static class NumericInput
         foreach (var modifier in new[] { 0x10, 0x11, 0x12, 0x5B, 0x5C })
             if ((GetAsyncKeyState(modifier) & 0x8000) != 0)
                 throw new InvalidOperationException("请松开键盘修饰键后输入数字。");
+        var target = TsfClient.FindTarget();
+        if (target == null || target.Value.Foreground != foreground || !TsfClient.AllowNumeric(target.Value))
+            throw new InvalidOperationException("请选择已适配的小白 T9 或 GamePad T9，并结束键盘正在输入的拼音。");
         // Virtual key mode: no scancode flag, no NumLock toggling, no Unicode injection.
         var vk = (ushort)(0x60 + digit);
-        Input[] keys = [new() { Type = 1, Union = new() { Key = new() { Vk = vk } } },
-                        new() { Type = 1, Union = new() { Key = new() { Vk = vk, Flags = 2 } } }];
+        Input[] keys = [new() { Type = 1, Union = new() { Key = new() { Vk = vk, Extra = 0x4754394e } } },
+                        new() { Type = 1, Union = new() { Key = new() { Vk = vk, Flags = 2, Extra = 0x4754394e } } }];
         var sent = SendInput((uint)keys.Length, keys, Marshal.SizeOf<Input>());
         SentKeyEvents += sent;
         if (sent != keys.Length)

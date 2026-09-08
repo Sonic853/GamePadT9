@@ -11,8 +11,14 @@ using Microsoft::WRL::ComPtr;
 
 static const CLSID ServiceId = {0x595b67e9,0x48a3,0x4c82,{0xb7,0xb1,0x64,0xe4,0xa3,0x5c,0x9d,0x92}};
 static const GUID ProfileId = {0x79c457d1,0x690a,0x4f83,{0xa3,0xde,0xc9,0x5c,0x98,0xe0,0x1d,0x4d}};
+#ifdef GAMEPADT9_HOSTED
+static constexpr wchar_t ClassName[] = L"GamePadT9.Xiaobai.v1";
+static thread_local ULONGLONG numericUntil = 0;
+static constexpr ULONG_PTR NumericMarker = 0x4754394e;
+#else
 static constexpr wchar_t ClassName[] = L"GamePadT9.TextService.v1";
-static constexpr wchar_t Description[] = L"GamePad T9 验证";
+#endif
+static constexpr wchar_t Description[] = L"GamePad T9";
 static constexpr UINT ProbeMessage = WM_APP + 91, ReceiptMessage = WM_APP + 92, ErrorMessage = WM_APP + 93;
 static constexpr UINT CapabilitiesMessage = WM_APP + 94;
 static constexpr ULONG_PTR WireMagic = 0x39545047;
@@ -52,6 +58,11 @@ class Service final : public ITfTextInputProcessorEx, public ITfThreadMgrEventSi
     int receiptState = 0;
     HRESULT receiptError = S_OK;
     bool active = false;
+#ifdef GAMEPADT9_HOSTED
+    ComPtr<IUnknown> hostOwner;
+    bool (*hostReady)(void*) = nullptr;
+    void* hostData = nullptr;
+#endif
     void Changed() { if (++epoch > 0x7fffffff) epoch = 1; lastContext.Reset(); }
     ComPtr<ITfContext> Focused() {
         ComPtr<ITfDocumentMgr> doc; ComPtr<ITfContext> ctx;
@@ -72,6 +83,9 @@ class Service final : public ITfTextInputProcessorEx, public ITfThreadMgrEventSi
     }
     uint32_t Probe() {
         if (!IsForeground()) return 0;
+#ifdef GAMEPADT9_HOSTED
+        if (hostReady && !hostReady(hostData)) return 0;
+#endif
         auto ctx = Focused();
         if (!ctx) return 0;
         TF_STATUS status{};
@@ -112,7 +126,20 @@ class Service final : public ITfTextInputProcessorEx, public ITfThreadMgrEventSi
             if (msg == ProbeMessage) return self->Probe();
             if (msg == ReceiptMessage) return wp == self->receiptId ? self->receiptState : 0;
             if (msg == ErrorMessage) return self->receiptError;
-            if (msg == CapabilitiesMessage) return 3; // bit 0: insert, bit 1: backspace
+            if (msg == CapabilitiesMessage) {
+#ifdef GAMEPADT9_HOSTED
+                return 7; // insert, backspace, tagged NumPad bypass
+#else
+                return 3;
+#endif
+            }
+#ifdef GAMEPADT9_HOSTED
+            if (msg == WM_APP + 95) {
+                if (!wp || self->Probe() != wp) return 0;
+                numericUntil = GetTickCount64() + 1000;
+                return 1;
+            }
+#endif
             if (msg == WM_COPYDATA) {
                 try { return self->Accept(reinterpret_cast<HWND>(wp), reinterpret_cast<COPYDATASTRUCT*>(lp)); }
                 catch (...) { return 0; }
@@ -123,6 +150,11 @@ class Service final : public ITfTextInputProcessorEx, public ITfThreadMgrEventSi
 public:
     Service() { ++objects; }
     ~Service() { Deactivate(); --objects; }
+#ifdef GAMEPADT9_HOSTED
+    void SetHost(IUnknown* owner, bool (*ready)(void*), void* data) {
+        hostOwner = owner; hostReady = ready; hostData = data;
+    }
+#endif
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** out) override {
         if (!out) return E_POINTER;
         *out = nullptr;
@@ -153,6 +185,9 @@ public:
     }
     HRESULT STDMETHODCALLTYPE Deactivate() override {
         active = false; Changed();
+#ifdef GAMEPADT9_HOSTED
+        numericUntil = 0;
+#endif
         if (endpoint) { DestroyWindow(endpoint); endpoint = nullptr; }
         // DLL-owned window classes survive unload unless explicitly unregistered.
         // If another service instance still has a window, Windows keeps the class.
@@ -169,6 +204,9 @@ public:
         return S_OK;
     }
     bool Validate(ITfContext* ctx, HWND foreground, uint32_t expected) {
+#ifdef GAMEPADT9_HOSTED
+        if (active && hostReady && !hostReady(hostData)) return false;
+#endif
         return active && foreground == GetForegroundWindow() && IsForeground() && expected == epoch && Same(ctx, Focused().Get());
     }
     void Complete(uint32_t id, HRESULT hr) {
@@ -246,6 +284,7 @@ HRESULT EditSession::DoEditSession(TfEditCookie cookie) {
     return hr;
 }
 
+#ifndef GAMEPADT9_HOSTED
 class Factory final : public IClassFactory {
     std::atomic<ULONG> refs{1};
 public:
@@ -323,3 +362,4 @@ BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) { instance = module; DisableThreadLibraryCalls(module); }
     return TRUE;
 }
+#endif
