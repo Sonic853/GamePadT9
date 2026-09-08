@@ -5,14 +5,14 @@ namespace GamePadT9;
 
 internal enum InputMode { T9, Numeric }
 
-// The application's only keyboard-injection boundary. It permits NumPad 0..9
+// The numeric keyboard-injection boundary. It permits NumPad 0..9
 // exclusively, and requires both Numeric mode and the same foreground window.
 internal static class NumericInput
 {
     internal static uint SentKeyEvents { get; private set; }
     internal static void SendDigit(InputMode mode, int digit, nint foreground)
     {
-        if (mode != InputMode.Numeric) throw new InvalidOperationException("九键模式不能发送模拟按键。");
+        if (mode != InputMode.Numeric) throw new InvalidOperationException("九键模式不能发送模拟数字按键。");
         if ((uint)digit > 9) throw new ArgumentOutOfRangeException(nameof(digit));
         if (foreground == 0 || TsfClient.GetForegroundWindow() != foreground)
             throw new InvalidOperationException("输入焦点已变化，数字未发送。");

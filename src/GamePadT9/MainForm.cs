@@ -28,6 +28,12 @@ internal sealed class MainForm : Form
     internal int DisplayedCandidateCount => session.View.Candidates.Length;
     internal int HighlightedRegion => region;
     internal InputMode DisplayedMode => session.Mode;
+    internal string DisplayedPreedit => string.Create(session.View.Preedit.Length, session.View.Preedit, static (output, original) =>
+    {
+        // Render the original 789/456/123 schema codes as the controller's 123/456/789.
+        for (var i = 0; i < original.Length; i++) output[i] = original[i] switch
+        { '7' => '1', '8' => '2', '9' => '3', '1' => '7', '2' => '8', '3' => '9', _ => original[i] };
+    });
     protected override bool ShowWithoutActivation => true;
     protected override CreateParams CreateParams
     {
@@ -102,7 +108,7 @@ internal sealed class MainForm : Form
             var view = session.View;
             TextAt(g, $"第 {view.Page + 1} 页", smallFont, Muted, new(676, 101, 84, 24));
             Fill(g, new(366, 134, 394, 35), PanelColor);
-            TextAt(g, view.Preedit.Length == 0 ? "选择字母组，按 RT 开始输入" : view.Preedit, smallFont, Accent, new(378, 141, 370, 23));
+            TextAt(g, view.Preedit.Length == 0 ? "选择字母组，按 RT 开始输入" : DisplayedPreedit, smallFont, Accent, new(378, 141, 370, 23));
             if (view.Candidates.Length == 0)
                 TextAt(g, "候选词将在这里显示\n\nA 确认当前候选\nLB / RB 上下选择\n十字键左右翻页", mainFont, Muted, new(380, 205, 360, 190));
             for (var i = 0; i < Math.Min(view.Candidates.Length, 9); i++)

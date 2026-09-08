@@ -134,7 +134,7 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
                 {
                     Busy = true; Changed?.Invoke();
                     var error = await tsf.Backspace(target.Value);
-                    Message = error ?? "已删除前一个字符";
+                    Message = error ?? (tsf.LastBackspaceSimulated ? "已发送 Backspace" : "已删除前一个字符");
                     submissionUnconfirmed = error != null && tsf.LastOutcomeUncertain;
                     if (error == null && Mode == InputMode.Numeric && NumberHistory.Length > 0) NumberHistory = NumberHistory[..^1];
                     return;

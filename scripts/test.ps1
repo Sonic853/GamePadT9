@@ -1,4 +1,4 @@
-param([switch]$Notepad, [switch]$Editor, [switch]$Installed, [switch]$Standalone, [switch]$InputMethod, [ValidateSet('x64','x86')][string]$Architecture = 'x64')
+param([switch]$Notepad, [switch]$Editor, [switch]$Installed, [switch]$Standalone, [switch]$InputMethod, [switch]$Backspace, [switch]$Xiaobai, [ValidateSet('x64','x86')][string]$Architecture = 'x64')
 $ErrorActionPreference = 'Stop'
 if ($InputMethod) { $Editor = $true; $Installed = $true }
 if ($Standalone -and !$Editor) { throw '-Standalone requires -Editor.' }
@@ -22,6 +22,12 @@ if ($Editor) {
     if ($Architecture -eq 'x86') { $mode += ' --x86'; $prefix += '-x86' }
 }
 if ($InputMethod) { $prefix = "input-method-$Architecture"; $mode = '--verify-input-method' + $(if ($Architecture -eq 'x86') { ' --x86' } else { '' }) }
+if ($Backspace) {
+    dotnet build (Join-Path $projectRoot 'tests\BackspaceEditor\BackspaceEditor.csproj') -c Release -r "win-$Architecture" -o (Join-Path $projectRoot "artifacts\backspace-editor-$Architecture") --nologo
+    if ($LASTEXITCODE -ne 0) { throw 'Backspace test editor build failed.' }
+    $prefix = "backspace-$Architecture"
+    $mode = '--verify-backspace' + $(if ($Architecture -eq 'x86') { ' --x86' } else { '' }) + $(if ($Xiaobai) { ' --xiaobai' } else { '' })
+}
 $process = Start-Process -FilePath $app -ArgumentList $mode -WindowStyle Hidden -Wait -PassThru `
     -RedirectStandardOutput (Join-Path $projectRoot "artifacts\$prefix.stdout.txt") `
     -RedirectStandardError (Join-Path $projectRoot "artifacts\$prefix.stderr.txt")

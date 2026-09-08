@@ -23,6 +23,12 @@ internal static class Program
             if (!first) throw new InvalidOperationException("GamePad T9 已在运行。请先关闭已有实例。");
             using var engine = new RimeEngine(Settings.Load(root));
             if (args.Contains("--self-test")) return Validation.Run(root, engine);
+            if (args.Contains("--verify-backspace"))
+            {
+                using var verification = new BackspaceValidation(root, engine, args.Contains("--x86"), args.Contains("--xiaobai"));
+                System.Windows.Forms.Application.Run(verification);
+                return verification.Result;
+            }
             if (args.Contains("--verify-input-method"))
             {
                 using var verification = new InputMethodValidation(root, engine, args.Contains("--x86"));
@@ -79,7 +85,7 @@ internal static class Validation
         var numericBlocked = false;
         try { NumericInput.SendDigit(InputMode.T9, 5, 0); }
         catch (InvalidOperationException) { numericBlocked = true; }
-        Check(numericBlocked && NumericInput.SentKeyEvents == 0, "Keyboard injection is rejected outside numeric mode");
+        Check(numericBlocked && NumericInput.SentKeyEvents == 0, "NumPad injection is rejected outside numeric mode");
         var devices = Enumerable.Range(0, 4).Where(i => Controller.Read((uint)i, out _)).ToArray();
         // ni hao = 6 4 4 8 6 in the original physical-keypad encoding.
         foreach (var region in new[] { 5, 3, 3, 1, 5 }) engine.InputRegion(region);

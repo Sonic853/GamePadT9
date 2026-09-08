@@ -10,6 +10,7 @@ internal sealed class TsfClient
     private const uint ProbeMessage = 0x8000 + 91, ReceiptMessage = 0x8000 + 92;
     private uint request = (uint)Random.Shared.Next(1, int.MaxValue);
     public bool LastOutcomeUncertain { get; private set; }
+    public bool LastBackspaceSimulated { get; private set; }
     public static bool SupportsBackspace(Target target) => Send(target.Endpoint, 0x8000 + 94, 0, 0, out var flags) && (flags & 2) != 0;
     public static bool AllowNumeric(Target target)
     {
@@ -20,18 +21,19 @@ internal sealed class TsfClient
     }
     public static Target? FindTarget()
     {
-        var foreground = GetForegroundWindow();
-        GetWindowThreadProcessId(foreground, out var pid);
+        if (InputMethodSwitcher.Foreground() is not InputWindow focused) return null;
+        var foreground = focused.Root;
+        var pid = focused.Process;
         foreach (var backend in new[] { InputBackend.Xiaobai, InputBackend.Standalone })
         {
             var className = backend == InputBackend.Xiaobai ? "GamePadT9.Xiaobai.v1" : "GamePadT9.TextService.v1";
             nint endpoint = 0;
             while ((endpoint = FindWindowEx(new nint(-3), endpoint, className, null)) != 0)
             {
-                GetWindowThreadProcessId(endpoint, out var endpointPid);
-                if (endpointPid != pid) continue;
+                var endpointThread = GetWindowThreadProcessId(endpoint, out var endpointPid);
+                if (endpointPid != pid || endpointThread != focused.Thread) continue;
                 if (Send(endpoint, ProbeMessage, 0, 0, out var token) && token is > 0 and <= int.MaxValue)
-                    return new(endpoint, foreground, (uint)token, pid, backend);
+                    return InputMethodSwitcher.Foreground() == focused ? new(endpoint, foreground, (uint)token, pid, backend) : null;
             }
         }
         return null;
@@ -39,10 +41,20 @@ internal sealed class TsfClient
     public Task<string?> Commit(Target target, string text) => Edit(target, 1, text);
     public Task<string?> Backspace(Target target)
     {
-        LastOutcomeUncertain = false;
+        LastOutcomeUncertain = false; LastBackspaceSimulated = false;
         if (!SupportsBackspace(target))
-            return Task.FromResult<string?>("当前程序仍加载旧输入组件，请重新打开该程序后使用上屏退格");
+            return Task.FromResult(SimulateBackspace(target));
         return Edit(target, 2, "");
+    }
+    private string? SimulateBackspace(Target target)
+    {
+        var before = BackspaceInput.SentKeyEvents;
+        try { BackspaceInput.Send(target); LastBackspaceSimulated = true; return null; }
+        catch (Exception ex)
+        {
+            LastOutcomeUncertain = BackspaceInput.SentKeyEvents != before;
+            return ex.Message;
+        }
     }
     private async Task<string?> Edit(Target target, uint operation, string text)
     {
@@ -75,7 +87,8 @@ internal sealed class TsfClient
                 if (status == 3)
                 {
                     if (Send(target.Endpoint, 0x8000 + 93, 0, 0, out var hr) && (uint)hr == 0x80004001)
-                        return "目标控件未开放完整文档，无法直接删除已上屏文字";
+                        // E_NOTIMPL is returned before any deletion in the native bridge.
+                        return operation == 2 ? SimulateBackspace(target) : "目标控件不支持 TSF 文本编辑。";
                     return "TSF 编辑失败，文本未提交。";
                 }
                 if (status == 0 && !accepted) return "TSF 拒绝请求，请检查当前文本框及输入法。";

@@ -42,12 +42,13 @@ internal sealed class InputMethodValidation : Form
         };
     }
     private void Check(bool condition, string description) { if (!condition) throw new Exception(description); checks.Add(description); }
-    private async Task<Editor> OpenEditor()
+    private async Task<Editor> OpenEditor(bool readOnly = false)
     {
         var file = Path.Combine(root, "artifacts", "InputMethod-" + Guid.NewGuid().ToString("N") + ".txt");
         var folder = "test-editor-installed" + (x86 ? "-x86" : "");
         var info = new ProcessStartInfo(Path.Combine(root, "artifacts", folder, "TestEditor.exe")) { UseShellExecute = false };
         info.ArgumentList.Add(file); info.ArgumentList.Add("--report-profile");
+        if (readOnly) info.ArgumentList.Add("--read-only");
         var process = Process.Start(info) ?? throw new IOException("Test editor did not start.");
         try
         {
@@ -116,7 +117,9 @@ internal sealed class InputMethodValidation : Form
         await Chord(); await Expect(first, Standalone);
         var second = await OpenEditor();
         await Set(control, second, english); await Focus(second); await session.CheckFocus(); await Expect(second, Standalone);
-        await Focus(first); await session.CheckFocus();
+        await Set(control, first, english); // Simulate an application changing a previously visited thread's profile.
+        await Focus(first); await session.CheckFocus(); await Expect(first, Standalone);
+        Check(session.Enabled, "Revisiting a thread reactivates GamePad T9 without replacing its first saved profile");
         await Chord();
         await Expect(first, Xiaobai); await Expect(second, english);
         Check(!control.HasSavedProfiles, "Each visited window restores its own original profile; revisiting does not overwrite snapshots");
@@ -135,6 +138,11 @@ internal sealed class InputMethodValidation : Form
         Check(fallback.Enabled && TsfClient.FindTarget()?.Backend == InputBackend.Xiaobai, "If GamePad T9 is unavailable, activation falls back to xiaobai");
         await fallback.ShutdownAsync(); await Expect(first, english);
         Check(!fallbackControl.HasSavedProfiles, "Orderly shutdown restores the original profile");
+        var readOnly = await OpenEditor(readOnly: true);
+        await Set(control, readOnly, english); await Focus(readOnly);
+        await session.Handle(new(PadAction.Toggle)); await Expect(readOnly, english);
+        Check(!session.Enabled && !overlay.Visible && !control.HasSavedProfiles,
+            "A read-only target cannot enable the overlay; unsuccessful readiness checks restore the original profile");
         Check(NumericInput.SentKeyEvents == 0, "Switching, restoring, and Chinese typing produce zero simulated keyboard events");
     }
     [DllImport("user32.dll")] private static extern int GetKeyboardLayoutList(int count, [Out] nint[]? layouts);

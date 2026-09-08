@@ -12,7 +12,7 @@ internal static class Program
     private static void Main(string[] args)
     {
         var form = new Window { Title = args.Length > 0 ? Path.GetFileNameWithoutExtension(args[0]) : "GamePadT9 Test Editor", Width = 900, Height = 660 };
-        var editor = new TextBox { FontSize = 28, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
+        var editor = new TextBox { FontSize = 28, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, IsReadOnly = args.Contains("--read-only") };
         form.Content = editor;
         var standalone = args.Contains("--standalone");
         var profileTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };

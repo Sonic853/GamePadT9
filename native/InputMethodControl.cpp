@@ -65,8 +65,13 @@ static bool Available(ITfInputProcessorProfileMgr* manager, const GUID& clsid, c
 }
 static HRESULT Execute(Request& request) {
     if (request.process != GetCurrentProcessId() || request.thread != GetCurrentThreadId()) return E_ACCESSDENIED;
-    if ((request.operation == 1 || request.operation == 3) && GetAncestor(request.window, GA_ROOT) != GetForegroundWindow())
-        return HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
+    if (request.operation == 1 || request.operation == 3) {
+        GUITHREADINFO gui{sizeof(GUITHREADINFO)};
+        if (GetAncestor(request.window, GA_ROOT) != GetForegroundWindow() ||
+            !GetGUIThreadInfo(0, &gui) || gui.hwndFocus != request.window ||
+            (gui.flags & (GUI_INMENUMODE | GUI_INMOVESIZE | GUI_POPUPMENUMODE | GUI_SYSTEMMENUMODE)))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
+    }
     ComPtr<ITfInputProcessorProfileMgr> manager;
     auto hr = CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&manager));
     if (FAILED(hr)) return hr;

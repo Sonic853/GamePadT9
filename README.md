@@ -13,13 +13,13 @@ Windows Xbox / XInput 手柄九键输入程序。启动 C# 主程序，在目标
 3. 同时按 **View + Menu** 开启手柄输入，自动记录并切换输入法，也可以双击托盘图标。
 4. 置顶九宫格和候选面板出现后，用右摇杆选区，按 **RT / R3** 输入字母组，按 **A** 确认候选。
 
-本机已安装两种输入组件。**更新输入组件前已打开的目标程序可能需要重新打开**，才能加载新组件；不用重新添加输入法。自动切换只作用于正在使用的目标窗口线程，不使用整个桌面范围的激活。
+本机已安装两种输入组件。**更新输入组件前已打开的目标程序可能需要重新打开**，才能加载新组件；不用重新添加输入法。自动切换作用于实际获得键盘焦点的编辑控件线程，支持新版记事本中主窗口与编辑区分属不同线程的情况，不使用整个桌面范围的激活。
 
 面板不抢文本框焦点，标题区域可拖动，九宫格和候选也可点击。再次按 View + Menu、长按 B、面板右上角 ×、托盘关闭输入、手柄断开或正常退出程序，都会关闭输入并恢复先前的输入法。短按 B 只关闭候选，不恢复输入法。重连手柄后需再次开启。
 
-启用期间切换到其他程序时，会为新窗口分别记录并切换输入法；关闭时恢复本轮使用过且仍存在的窗口。返回已记录的窗口不会覆盖原始记录。原先已经选择 GamePad T9 时，关闭后仍保持 GamePad T9。
+启用期间切换程序或同一窗口内的焦点控件时，会按实际输入线程记录并切换输入法；关闭时分别恢复。返回已访问的线程会重新确认切换及组件就绪，但不会覆盖首次记录的原输入法。原先已经选择 GamePad T9 时，关闭后仍保持 GamePad T9。
 
-记录或切换失败时不直接开启输入，程序会尝试恢复并在托盘提示原因。若面板提示没有可用目标，请确认光标位于可编辑区域，并先完成或取消实体键盘正在输入的拼音。
+首次开启时，只有输入法切换成功、焦点仍匹配且该编辑线程的输入组件就绪，才显示面板。记录、切换或就绪检查失败时，程序会尝试恢复并在托盘提示原因。请确认光标位于可编辑区域，并先完成或取消实体键盘正在输入的拼音。
 
 ## 备用输入法条目
 
@@ -83,21 +83,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/register-standalone.
 
 Y 切换到数字模式会暂存九键编码，在同一文本框返回九键模式后可以继续选词。切换文本框会清除未提交编码，避免提交到其他窗口。
 
-**输入“你好”**：依次选择 MNO → GHI → GHI → ABC → MNO，每次按 RT，再按 A。引擎使用小白原键位编码 `64486`；数字模式使用上方 1–9 的顺序。
+**输入“你好”**：依次选择 MNO → GHI → GHI → ABC → MNO，每次按 RT，再按 A。候选标题下的编码显示为 `64 426`，与顶部 `1 2 3`、中间 `4 5 6`、底部 `7 8 9` 的顺序一致。引擎内部继续使用小白原键位编码 `64486`，候选词和词库匹配不受显示转换影响。
 
 ## 输入方式
 
 手柄 → C# 控制器 → 原版 librime API → C# 候选面板 → 当前所选入口的 TSF 编辑会话 → 当前文本框。
 
-自动切换使用一个短时、指定线程的 Windows 消息钩子，在目标 UI 线程中调用 TSF API，读取原输入法的完整标识（或英文等键盘布局句柄），并执行切换和恢复。32 位和 64 位目标使用各自的辅助组件。它不是键盘钩子，不记录按键，也不模拟 Win + Space、Alt + Shift 等快捷键；请求完成即卸下钩子。
+自动切换通过 `GetGUIThreadInfo().hwndFocus` 找到实际接收键盘输入的控件，再使用一个短时、指定线程的 Windows 消息钩子，在该控件所属线程中调用 TSF API，读取原输入法的完整标识（或英文等键盘布局句柄），并执行切换和恢复。辅助组件在目标线程再次检查焦点；C# 只连接同一输入线程的 TSF 端点。32 位和 64 位目标使用各自的辅助组件。它不是键盘钩子，不记录按键，也不模拟 Win + Space、Alt + Shift 等快捷键；请求完成即卸下钩子。
 
-接口依据：[SetWindowsHookEx](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowshookexw)、[GetActiveProfile](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfinputprocessorprofilemgr-getactiveprofile)、[ActivateProfile](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfinputprocessorprofilemgr-activateprofile)。
+接口依据：[GetGUIThreadInfo](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getguithreadinfo)、[SetWindowsHookEx](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowshookexw)、[GetActiveProfile](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfinputprocessorprofilemgr-getactiveprofile)、[ActivateProfile](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfinputprocessorprofilemgr-activateprofile)。
 
-九键模式直接调用 Rime API，中文、标点和退格通过 TSF 处理，不模拟键盘或粘贴。Rime 内部的 `KP_*` 编码只是函数参数，不会发送到 Windows 键盘队列。
+九键模式直接调用 Rime API，中文和标点通过 TSF 处理，不模拟拼音按键或粘贴。Rime 内部的 `KP_*` 编码只是函数参数，不会发送到 Windows 键盘队列。正在输入的拼音编码由引擎直接退格，不发送 Backspace。
 
-只有数字模式输入 0–9 时使用 `SendInput` 发送小键盘数字。事件带有专用标记，目标组件在确认当前焦点后临时放行这些数字，避免小白把它们再次解释为拼音编码；实体小键盘事件仍由原有逻辑处理。程序不切换 NumLock，也不模拟 Enter、空格或其他功能键。
+数字模式输入 0–9 时使用 `SendInput` 发送小键盘数字。事件带有专用标记，目标组件在确认当前焦点后临时放行这些数字，避免小白把它们再次解释为拼音编码；实体小键盘事件仍由原有逻辑处理。程序不切换 NumLock，也不模拟 Enter、空格等其他功能键。
 
-备用 TSF 组件不拦截键盘按键，数字经过焦点检查后直接交给文本框；无需小白专用的数字放行接口。中文、标点和退格在两种入口下都不模拟按键。
+备用 TSF 组件不拦截键盘按键，数字经过焦点检查后直接交给文本框；无需小白专用的数字放行接口。
+
+**已上屏文字的退格兼容**：X 优先请求 TSF 删除；如果组件不提供该能力，或目标返回“不支持此编辑操作”（原先显示“目标控件未开放完整文档”），则自动发送一组 Backspace 按下和松开。在九键、数字模式下都适用，面板显示“已发送 Backspace”。这是小键盘数字之外明确允许的按键模拟。
+
+发送 Backspace 前重新核对目标文本框及焦点令牌，并检查 Ctrl、Alt、Shift、Win 等修饰键。焦点变化、一般编辑失败或结果不明的超时不会补发 Backspace，避免误删或重复删除。兼容模式的具体删除行为由目标控件决定，与该控件处理实体 Backspace 一致。
 
 手柄使用独立的 Rime 会话和学习数据。**它与实体键盘共用小白输入法入口，但不共用正在输入的拼音、候选状态或词频数据库。** 实体键盘正在组词时，手柄提交暂停，以免插入到该预编辑内容中。
 
@@ -156,9 +160,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -InputMetho
 
 此检查只操作自己创建的 WPF 窗口，目标程序通过自身 TSF 管理器独立记录当前输入法。回退检查模拟 GamePad T9 不可用，不卸载或禁用本机已安装条目。
 
+旧式文本框的 Backspace 兼容检查：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace -Xiaobai
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace -Architecture x86
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace -Architecture x86 -Xiaobai
+```
+
+此检查使用真实 Win32 EDIT 文本框触发不支持 TSF 删除的回执，验证每次 X 只发送一组 Backspace、拼音编码退格不发送按键，以及过期焦点不会删除文字。
+
 `-Editor` 使用测试进程私有的 COM 清单加载组件，只在该进程内激活小白输入法；结束时关闭该测试窗口。`-Installed` 使用系统实际注册路径，测试同时核对加载路径及文件哈希，防止把隔离副本误当成安装结果。
 
-可选的 `scripts/test.ps1 -Notepad` 会创建专用空白测试文档，要求记事本已经选择小白 T9 并加载当前组件；它不切换整个桌面的输入法，也不关闭用户的记事本窗口。记事本已有进程可能继续使用更新前的 DLL。
+`scripts/test.ps1 -Notepad` 会创建专用空白测试文档，通过生产控制器的 View + Menu 事件自动切换其编辑线程到 GamePad T9，验证中文、候选、数字、退格和长按 B 恢复。无需预先手动选择输入法。成功后清空测试文字，并只关闭本次创建的标签页；不关闭其他用户文档。记事本已有进程可能继续使用更新前的输入组件 DLL。
 
 ## 验证结果
 
@@ -175,24 +190,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -InputMetho
 | x86 备用输入法条目 | [editor-standalone-x86-verification.json](artifacts/editor-standalone-x86-verification.json) |
 | x64 自动切换和恢复 | [input-method-x64-verification.json](artifacts/input-method-x64-verification.json) |
 | x86 自动切换和恢复 | [input-method-x86-verification.json](artifacts/input-method-x86-verification.json) |
+| 新版记事本自动切换、输入和恢复 | [notepad-verification.json](artifacts/notepad-verification.json) |
+| x64 / x86 独立入口 Backspace 兼容 | [x64 报告](artifacts/backspace-standalone-x64-verification.json)、[x86 报告](artifacts/backspace-standalone-x86-verification.json) |
+| x64 / x86 小白入口 Backspace 兼容 | [x64 报告](artifacts/backspace-xiaobai-x64-verification.json)、[x86 报告](artifacts/backspace-xiaobai-x86-verification.json) |
 
 恢复备用入口后，两种架构的备用输入测试和小白联动回归测试均通过。测试核对了实际使用的入口，防止备用测试误连到小白组件。
 
-自动切换专项检查覆盖 View + Menu 开启、立即输入中文、短按 B 保持输入法、长按 B 恢复英文布局、多个窗口分别恢复、重复进入不覆盖记录、原先已选 GamePad T9、切换过程中关闭、小白回退和正常关闭恢复，均无模拟键盘事件。
+自动切换专项检查覆盖 View + Menu 开启、立即输入中文、短按 B 保持输入法、长按 B 恢复英文布局、多个窗口分别恢复、返回已访问线程重新切换且不覆盖原始记录、原先已选 GamePad T9、切换过程中关闭、小白回退、只读文本框就绪失败后恢复，以及正常关闭恢复，均无模拟键盘事件。
 
 测试覆盖置顶九宫格不抢焦点、可见候选、候选移动和翻页、A 上屏“你好”、数字 `1234567890`、Y 保留编码、X 删除已上屏字符和完整 UTF-16 代理对表情、标点上屏、B 保留九宫格、关闭后隐藏及过期焦点拒绝。
 
-端到端检查使用合成 XInput 状态驱动生产 `Controller` 和 `InputSession`，通过 TSF 编辑回执和 UI Automation 独立读取文档确认结果。UI Automation 只用于定位、聚焦和读取。每组模拟键盘事件恰为 20 次，全部来自数字 0–9 的按下和松开；中文、标点和退格均为零次模拟键盘事件。本轮自动化检查不等同于逐项实体手柄体验测试。
+端到端检查使用合成 XInput 状态驱动生产 `Controller` 和 `InputSession`，通过 TSF 编辑回执和 UI Automation 独立读取文档确认结果。UI Automation 用于定位、聚焦、读取及关闭测试标签页；输入文字使用生产输入路径。完整 TSF 文档的 WPF 检查中，每组模拟键盘事件恰为 20 次，全部来自数字 0–9；Backspace 兼容专项检查中，三次上屏退格产生 6 次键盘事件。候选编码的顶部 123 显示也已验证。本轮自动化检查不等同于逐项实体手柄体验测试。
 
 截图：[九键候选](artifacts/overlay-t9.png)、[数字模式](artifacts/overlay-numeric.png)。
 
-本轮记事本检查停在“未加载小白 T9 联动组件”，未执行文字输入；不能计为通过。当前已验证的是上表的 x64 / x86 WPF 文本框。使用记事本时需重新打开程序并在其中选择小白 T9，最新状态见 [记事本报告](artifacts/notepad-verification.json)。
+新版记事本现已通过完整检查：主窗口与编辑区位于不同线程，View + Menu 将编辑线程切换到 GamePad T9，主窗口线程保持原输入法；成功上屏“你好”和 `1234567890`，长按 B 恢复编辑线程原输入法，英文布局和原中文输入法均已验证。报告包含两个线程的标识、切换前后及恢复后的输入法，以及文档独立读回结果。早期“面板已开启但记事本未切换”的原因是选中了主窗口线程，现已修复；详见 [记事本报告](artifacts/notepad-verification.json)。
 
 ## 当前范围
 
 - C# 宿主为 x86，匹配安装包中的 32 位 `rime.dll`；TSF 组件覆盖 x64 和 x86。ARM64 尚未验证。
 - 候选和编码显示在浮窗；确认时文字进入目标文本框，尚无目标内的预编辑下划线。
-- 已上屏退格要求目标控件开放完整 TSF 文档；仅提供临时输入上下文的旧控件会提示不支持。支持删除选中文本、普通字符、UTF-16 代理对和 CRLF；复杂组合表情不保证按整个字素删除。
+- 完整 TSF 文档支持直接删除选中文本、普通字符、UTF-16 代理对和 CRLF；仅提供临时输入上下文的旧控件自动使用 Backspace 兼容处理。复杂组合表情的删除粒度不作统一保证。
 - 当前不屏蔽游戏收到的手柄操作。独占全屏游戏、管理员程序及其他特殊编辑控件需要分别验证，不能保证所有程序兼容。
 - 自动切换需要目标允许消息钩子和 TSF 调用；权限更高或阻止外部钩子的程序可能拒绝操作。强制结束进程或系统异常时不能保证执行恢复。
 - 提交失败或回执超时不自动重发；面板会提示检查结果，按 B 清除后继续。
@@ -210,6 +228,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -InputMetho
 | `src/GamePadT9/MainForm.cs` | 不抢焦点的置顶九宫格与候选绘制 |
 | `src/GamePadT9/RimeEngine.cs` | 原版 librime C ABI 与独立会话 |
 | `src/GamePadT9/NumericInput.cs` | 数字模式限定的小键盘 0–9 事件 |
+| `src/GamePadT9/BackspaceInput.cs` | 带焦点和修饰键检查的 Backspace 兼容处理 |
 | `src/GamePadT9/TsfClient.cs` | 带焦点令牌、请求编号和回执的跨进程命令 |
 | `src/GamePadT9/InputMethodSwitcher.cs` | 原输入法记录、自动切换、窗口跟随和恢复 |
 | `native/InputMethodControl.cpp` | 在目标线程读取及切换 TSF 输入法的短时消息钩子 |
@@ -223,6 +242,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -InputMetho
 | `scripts/register-standalone.ps1` | 安装或移除备用输入法条目 |
 | `native/Control.cpp` | 备用组件注册和注销工具 |
 | `src/GamePadT9/NotepadValidation.cs` | 使用生产输入路径的端到端验证 |
+| `src/GamePadT9/BackspaceValidation.cs`、`tests/BackspaceEditor/` | 使用真实旧式文本框验证退格兼容行为 |
 | `tests/TestEditor/` | 隔离及安装验证使用的 TSF 编辑窗口 |
 
 Rime、小白 T9 和词库遵循各自原始许可，参见同级 `xiaobai-t9/LICENSE.txt`、`xiaobai-t9/librime/LICENSE` 和词库文件头。`data/installed/sources.json` 记录本机引用的运行库及关键部署文件 SHA256。

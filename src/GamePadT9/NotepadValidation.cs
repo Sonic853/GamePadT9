@@ -16,6 +16,9 @@ internal sealed class NotepadValidation : Form
     private readonly bool useTestEditor;
     private readonly bool isolated, editorX86, standalone;
     private Process? ownedEditor;
+    private InputSession? activeSession;
+    private AutomationElement? scratchWindow;
+    private string? scratchName;
     internal int Result { get; private set; } = 1;
     protected override bool ShowWithoutActivation => true;
     public NotepadValidation(string root, RimeEngine engine, bool useTestEditor = false, bool isolated = false, bool editorX86 = false, bool standalone = false)
@@ -32,7 +35,12 @@ internal sealed class NotepadValidation : Form
                 Console.Error.WriteLine(ex);
                 File.WriteAllText(ReportPath, JsonSerializer.Serialize(new { time = DateTimeOffset.Now, passed = false, error = ex.Message }, new JsonSerializerOptions { WriteIndented = true }));
             }
-            finally { if (ownedEditor != null) { if (!ownedEditor.HasExited) ownedEditor.CloseMainWindow(); ownedEditor.Dispose(); } Close(); }
+            finally
+            {
+                if (activeSession != null) await activeSession.ShutdownAsync();
+                if (ownedEditor != null) { if (!ownedEditor.HasExited) ownedEditor.CloseMainWindow(); ownedEditor.Dispose(); }
+                Close();
+            }
         };
     }
     private string ReportPath => Path.Combine(root, "artifacts", useTestEditor ? $"editor{(standalone ? "-standalone" : "")}{(editorX86 ? "-x86" : "")}{(isolated ? "-isolated" : "")}-verification.json" : "notepad-verification.json");
@@ -62,13 +70,32 @@ internal sealed class NotepadValidation : Form
             await Task.Delay(100);
         }
         if (window == null || editor == null) throw new Exception("未找到专用记事本文本框。");
+        scratchWindow = window; scratchName = name;
         var hwnd = (nint)window.Current.NativeWindowHandle;
         SetForegroundWindow(hwnd); editor.SetFocus();
         await Task.Delay(200);
         var before = Read(editor);
         if (!string.IsNullOrWhiteSpace(before)) throw new Exception("验证文档非空，停止写入。");
-        // The owned editor activates the requested input profile for its own process only.
-        // Notepad tests use the user's existing selection; no desktop-wide switch.
+        // Notepad exercises the production chord and switches its focused editor thread.
+        // WPF tests retain their process-local profile setup for component verification.
+        var inputMethods = useTestEditor ? null : new InputMethodSwitcher(root);
+        var inputWindow = InputMethodSwitcher.Foreground() ?? throw new Exception("未找到编辑区焦点。");
+        var frameThread = TsfClient.GetWindowThreadProcessId(hwnd, out var frameProcess);
+        var frame = new InputWindow(hwnd, frameProcess, frameThread);
+        var inputProfileBefore = inputMethods == null ? null : await inputMethods.RunAsync(inputWindow, "query");
+        var frameProfileBefore = inputMethods == null ? null : await inputMethods.RunAsync(frame, "query");
+        var session = new InputSession(engine, inputMethods); activeSession = session;
+        using var overlay = new MainForm(session);
+        var controller = new Controller(); controller.Update(default, 0);
+        foreach (var action in controller.Update(new Gamepad { Buttons = Buttons.View | Buttons.Menu }, 1)) await session.Handle(action);
+        controller.Update(default, 2);
+        if (!session.Enabled) throw new Exception("开启输入失败：" + session.Message);
+        var inputProfileAfter = inputMethods == null ? null : await inputMethods.RunAsync(inputWindow, "query");
+        var frameProfileAfter = inputMethods == null ? null : await inputMethods.RunAsync(frame, "query");
+        if (inputMethods != null && (!inputProfileBefore!.Ok || !inputProfileAfter!.Ok ||
+            inputProfileAfter.After.Clsid != new Guid("595B67E9-48A3-4C82-B7B1-64E4A35C9D92"))) throw new Exception("编辑区未切换到 GamePad T9。");
+        if (inputMethods != null && inputWindow.Thread != frameThread && frameProfileAfter!.After != frameProfileBefore!.Before)
+            throw new Exception("切换编辑线程时意外修改了主窗口线程输入法。");
         Target? target = null;
         for (var i = 0; i < 100; i++)
         {
@@ -98,15 +125,11 @@ internal sealed class NotepadValidation : Form
                     throw new Exception("安装验证加载了其他目录的 DLL：" + componentPath);
             }
         }
-        var session = new InputSession(engine);
-        using var overlay = new MainForm(session);
-        await session.Enable(true);
         overlay.Present(4, 0);
         await Task.Delay(150);
         if (!overlay.Visible || TsfClient.GetForegroundWindow() != hwnd)
             throw new Exception("启用时浮窗未显示或抢走输入焦点。");
         // Exercise the same right-stick + RT event path as the interactive host.
-        var controller = new Controller(); controller.Update(default, 0);
         (short x, short y)[] positions = [(22000, 0), (-22000, 0), (-22000, 0), (0, 22000), (22000, 0)];
         long tick = 10;
         foreach (var (x, y) in positions)
@@ -129,6 +152,7 @@ internal sealed class NotepadValidation : Form
         overlay.Invalidate(); overlay.Update();
         await Task.Delay(150);
         if (overlay.DisplayedCandidateCount == 0) throw new Exception("浮窗未显示引擎候选。");
+        if (overlay.DisplayedPreedit.Replace(" ", "") != "64426") throw new Exception("候选区编码未按顶部 123 的布局显示：" + overlay.DisplayedPreedit);
         var actualPoint = new Point(overlay.Left + 40, overlay.Top + 110);
         if (GetAncestor(WindowFromPoint(actualPoint), 2) != overlay.Handle)
             throw new Exception("九宫格被其他窗口覆盖。");
@@ -178,9 +202,23 @@ internal sealed class NotepadValidation : Form
         await session.Handle(new(PadAction.Confirm));
         await Task.Delay(120);
         if (Read(editor).TrimEnd('\r', '\n') != deleted + "，") throw new Exception("符号确认未上屏。");
-        if (NumericInput.SentKeyEvents != 20) throw new Exception("九键、标点或退格产生了额外键盘模拟。");
-        await session.Handle(new(PadAction.Disable));
+        if (NumericInput.SentKeyEvents != 20 || useTestEditor && BackspaceInput.SentKeyEvents != 0) throw new Exception("完整 TSF 控件发生了不必要的键盘模拟。");
+        if (!useTestEditor)
+        {
+            // Leave the owned scratch document empty before closing its tab.
+            for (var i = 0; i < deleted.Length + 1; i++) await session.Handle(new(PadAction.Backspace));
+            await Task.Delay(120);
+            if (Read(editor).TrimEnd('\r', '\n') != "") throw new Exception("专用记事本验证文档未清空。");
+        }
+        controller.Update(default, tick++);
+        controller.Update(new Gamepad { Buttons = Buttons.B }, tick++);
+        tick += 1001;
+        foreach (var action in controller.Update(new Gamepad { Buttons = Buttons.B }, tick++)) await session.Handle(action);
         if (overlay.Visible) throw new Exception("关闭输入后九格未隐藏。");
+        var inputProfileRestored = inputMethods == null ? null : await inputMethods.RunAsync(inputWindow, "query");
+        if (inputMethods != null && (inputMethods.HasSavedProfiles || !inputProfileRestored!.Ok || inputProfileRestored.After != inputProfileBefore!.Before))
+            throw new Exception("长按 B 未恢复编辑线程原输入法：" + session.Message);
+        var scratchTabClosed = !useTestEditor && await CloseScratchTab(editor);
         var report = new
         {
             time = DateTimeOffset.Now, passed = true, completedAllChecks = backspaceVerified, scratchFile = file,
@@ -189,11 +227,17 @@ internal sealed class NotepadValidation : Form
             componentSha256, componentPath,
             targetApplication = useTestEditor ? "WPF test editor" : "Notepad",
             targetProcess = target.Value.Process, targetWindow = $"0x{hwnd:X}", before, after,
+            automaticInputMethodSwitch = inputMethods != null, frameThread, inputThread = inputWindow.Thread,
+            scratchTabClosed,
+            crossThreadEditor = inputWindow.Thread != frameThread,
+            inputProfileBefore, inputProfileAfter, inputProfileRestored, frameProfileBefore, frameProfileAfter,
             input = "Synthetic XInput state samples -> production Controller -> original installed librime -> production TSF client",
             physicalController = false, t9KeyboardSimulation = false, numericKeyEvents = NumericInput.SentKeyEvents,
+            backspaceKeyEvents = BackspaceInput.SentKeyEvents,
             staleTargetRejected = true,
             overlayVisibleWithoutFocusSteal = true, overlayAboveTarget = true, candidatePanelRendered = true,
             candidateHighlightNavigation = true, candidatePaging = true,
+            preeditUsesTopRow123 = true,
             numericAfter, draftPreserved = true, backspaceAfter = backspaceVerified ? deleted : null, surrogatePairBackspace = backspaceVerified,
             symbolMenuAndCommit = true,
             cancelKeepsGrid = true, disableHidesGrid = true,
@@ -203,6 +247,39 @@ internal sealed class NotepadValidation : Form
         var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
         File.WriteAllText(ReportPath, json, new UTF8Encoding(false));
         Console.WriteLine(json);
+    }
+    private async Task<bool> CloseScratchTab(AutomationElement editor)
+    {
+        try
+        {
+            if (scratchWindow == null || scratchName == null || !scratchWindow.Current.Name.Contains(scratchName, StringComparison.Ordinal) ||
+                Read(editor).TrimEnd('\r', '\n') != "") return false;
+            // Recent Notepad versions only expose the tab's close button on hover.
+            // Use the accessible File menu instead; this never sends Ctrl+W or a key event.
+            var menu = scratchWindow.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, "File"));
+            if (menu?.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out var expand) != true) return false;
+            ((ExpandCollapsePattern)expand).Expand(); await Task.Delay(100);
+            var close = scratchWindow.FindFirst(TreeScope.Descendants, new AndCondition(
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem),
+                new OrCondition(new PropertyCondition(AutomationElement.NameProperty, "关闭选项卡"), new PropertyCondition(AutomationElement.NameProperty, "Close tab"))));
+            if (close?.TryGetCurrentPattern(InvokePattern.Pattern, out var invoke) != true)
+            { ((ExpandCollapsePattern)expand).Collapse(); return false; }
+            if (!scratchWindow.Current.Name.Contains(scratchName, StringComparison.Ordinal)) return false;
+            ((InvokePattern)invoke).Invoke();
+            for (var i = 0; i < 20; i++)
+            {
+                await Task.Delay(50);
+                if (!scratchWindow.Current.Name.Contains(scratchName, StringComparison.Ordinal)) return true;
+                // Only dismiss the save prompt for our known, cleared scratch document.
+                var prompt = scratchWindow.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text))
+                    .Cast<AutomationElement>().Any(t => t.Current.Name.Contains(Path.Combine(root, "artifacts", scratchName + ".txt"), StringComparison.Ordinal));
+                var discard = scratchWindow.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, "SecondaryButton"));
+                if (prompt && discard != null && discard.Current.Name is "不保存" or "Don't save" && discard.TryGetCurrentPattern(InvokePattern.Pattern, out var dismiss))
+                    ((InvokePattern)dismiss).Invoke();
+            }
+            return false;
+        }
+        catch (ElementNotAvailableException) { return true; }
     }
     private static void CaptureOverlay(Form form, string path)
     {
