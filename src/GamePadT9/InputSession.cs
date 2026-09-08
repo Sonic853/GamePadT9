@@ -7,6 +7,7 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
     private readonly Dictionary<string, string> drafts = new(StringComparer.OrdinalIgnoreCase);
     internal Func<(InputBehavior Behavior, InputWindow Window, string Key)>? FocusConfiguration { get; set; }
     internal Func<bool> ControlsReleased { get; set; } = () => true;
+    internal Func<bool>? ButtonsReleased { get; set; }
     internal Func<Rectangle> OverlayBounds { get; set; } = () => new(100, 300, 780, 520);
     internal Form? FocusOverlay { get; set; }
     internal FocusedInputSession? Focused => focused;
@@ -40,9 +41,10 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
                 if (config.Behavior.Mode != InputFocusMode.None)
                 {
                     if (inputMethods == null) throw new InvalidOperationException("缺少输入法切换组件。");
-                    focused = new(engine, inputMethods, config.Window, config.Behavior, ControlsReleased, OverlayBounds, FocusOverlay,
+                    focused = new(engine, inputMethods, config.Window, config.Behavior, ControlsReleased, ButtonsReleased ?? ControlsReleased, OverlayBounds, FocusOverlay,
                         drafts.GetValueOrDefault(config.Key, ""), text => drafts[config.Key] = text);
                     focused.Changed += () => Changed?.Invoke();
+                    focused.Error += text => Error?.Invoke(text);
                 }
             }
             catch (Exception ex) { Message = ex.Message; Error?.Invoke(Message); Changed?.Invoke(); return; }

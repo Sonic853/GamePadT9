@@ -59,6 +59,18 @@ internal sealed class InputMethodSwitcher(string root, bool simulateMissingStand
         lastAttempt = null;
         return await FollowAsync() ?? throw new InvalidOperationException("请先点击目标程序的文本框，再开启手柄输入。");
     }
+    // External editing takes focus before the first commit. Capture now without activating
+    // an IME so a later focus transition cannot replace the user's original profile.
+    internal async Task CaptureAsync(InputWindow window)
+    {
+        if (saved.Count != 0) await RestoreAsync();
+        lastAttempt = null;
+        if (Foreground() != window) throw new InvalidOperationException("原目标焦点已变化，未记录输入法。");
+        var result = await RunAsync(window, "query");
+        RequireSuccess(result, "无法记录目标窗口的输入法");
+        if (Foreground() != window) throw new InvalidOperationException("记录输入法期间目标焦点已变化。");
+        saved.Add((window.Process, window.Thread), new(window, result.Before));
+    }
     internal async Task<string?> FollowAsync()
     {
         if (Foreground() is not InputWindow window) return null;
@@ -104,6 +116,17 @@ internal sealed class InputMethodSwitcher(string root, bool simulateMissingStand
                 if (live == null) { saved.Remove(key); continue; }
                 var result = await RunAsync(live.Value, "restore", item.Profile).ConfigureAwait(false);
                 RequireSuccess(result, "恢复原输入法失败");
+                // The in-hook success response precedes queued activation/focus messages.
+                // Read the profile again after those messages have had time to run.
+                for (var attempt = 0; ; attempt++)
+                {
+                    await Task.Delay(100).ConfigureAwait(false);
+                    var check = await RunAsync(live.Value, "query").ConfigureAwait(false);
+                    RequireSuccess(check, "无法核对恢复后的输入法");
+                    if (check.After == item.Profile) break;
+                    if (attempt == 2) throw new InvalidOperationException("原输入法未保持恢复状态，已保留记录供重试。");
+                    RequireSuccess(await RunAsync(live.Value, "restore", item.Profile).ConfigureAwait(false), "恢复原输入法失败");
+                }
                 saved.Remove(key);
             }
             catch (Exception ex) { failures.Add(ex.Message); }

@@ -12,6 +12,7 @@ internal sealed class FocusedInputSession : IDisposable
     private readonly int[]? originalControl;
     private readonly InputBehavior behavior;
     private readonly Func<bool> neutral;
+    private readonly Func<bool> buttonsReleased;
     private readonly Func<Rectangle> overlayBounds;
     private readonly Action<string> saveDraft;
     private readonly TsfClient tsf = new();
@@ -32,11 +33,13 @@ internal sealed class FocusedInputSession : IDisposable
     internal FocusInputForm Form => form;
     internal string Draft => form.Editor.Text;
     internal event Action? Changed;
+    internal event Action<string>? Error;
     internal FocusedInputSession(RimeEngine engine, InputMethodSwitcher inputMethods, InputWindow original, InputBehavior behavior,
-        Func<bool> neutral, Func<Rectangle> overlayBounds, Form? overlay, string draft, Action<string> saveDraft)
+        Func<bool> neutral, Func<bool> buttonsReleased, Func<Rectangle> overlayBounds, Form? overlay, string draft, Action<string> saveDraft)
     {
         this.engine = engine; this.inputMethods = inputMethods; this.original = original; this.behavior = behavior;
         this.neutral = neutral; this.overlayBounds = overlayBounds; this.saveDraft = saveDraft;
+        this.buttonsReleased = buttonsReleased;
         try { originalControl = AutomationElement.FocusedElement?.GetRuntimeId(); }
         catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException or COMException) { }
         if (!External && overlay == null) throw new InvalidOperationException("缺少九宫格输入面板。");
@@ -67,7 +70,16 @@ internal sealed class FocusedInputSession : IDisposable
     internal async Task Enable(bool enabled)
     {
         if (Busy) { if (!enabled) { closing = true; operation?.Cancel(); } return; }
-        if (Enabled == enabled) return;
+        if (Enabled == enabled)
+        {
+            if (!enabled && inputMethods.HasSavedProfiles)
+            {
+                Busy = true;
+                try { await RestoreProfileAsync(); }
+                finally { Busy = false; Notify(); }
+            }
+            return;
+        }
         Busy = true;
         try
         {
@@ -76,6 +88,7 @@ internal sealed class FocusedInputSession : IDisposable
                 engine.Clear(); symbols.Close();
                 if (!original.IsAlive || InputMethodSwitcher.Foreground() != original) throw new InvalidOperationException("原目标焦点已变化，请重新开启输入。");
                 if (!External) await inputMethods.StartAsync();
+                else if (behavior.Completion == CompletionDestination.Target) await inputMethods.CaptureAsync(original);
                 Enabled = true; Notify();
                 if (External) { form.PlaceAbove(overlayBounds()); form.Show(); }
                 var focused = await FocusPanelAsync();
@@ -86,7 +99,7 @@ internal sealed class FocusedInputSession : IDisposable
         catch (Exception ex)
         {
             Message = ex.Message;
-            if (!Enabled) { form.Hide(); await RestoreProfileAsync(); }
+            if (!Enabled) { form.Hide(); await RestoreProfileAsync(); Error?.Invoke(Message); }
         }
         finally { Busy = false; Notify(); if (closing && Enabled) { closing = false; await Enable(false); } }
     }
@@ -102,7 +115,9 @@ internal sealed class FocusedInputSession : IDisposable
         closing = true; operation?.Cancel();
         while (Busy) await Task.Delay(20);
         closing = false;
-        await CloseCoreAsync(waitForRelease: false);
+        Busy = true;
+        try { await CloseCoreAsync(waitForRelease: false); }
+        finally { Busy = false; Notify(); }
     }
     private void Notify()
     {
@@ -150,7 +165,7 @@ internal sealed class FocusedInputSession : IDisposable
                         var before = NumericInput.SentKeyEvents;
                         try { NumericInput.SendDigit(InputMode.Numeric, digit, original.Root); await Task.Delay(80); RequireTarget(); return null; }
                         catch { uncertain = NumericInput.SentKeyEvents != before; throw; }
-                    }, token);
+                    }, token, requireCenteredSticks: false);
                     pendingText = "";
                 }
                 NumberHistory = (NumberHistory + digit); if (NumberHistory.Length > 24) NumberHistory = NumberHistory[^24..];
@@ -234,7 +249,7 @@ internal sealed class FocusedInputSession : IDisposable
     {
         if (External) { Insert(text); return; }
         pendingText = text;
-        await InTargetAsync(() => tsf.Commit(RequireTarget(), text), token);
+        await InTargetAsync(() => tsf.Commit(RequireTarget(), text), token, requireCenteredSticks: false);
         pendingText = "";
     }
     private async Task CompleteAsync(CancellationToken token)
@@ -266,21 +281,21 @@ internal sealed class FocusedInputSession : IDisposable
         if (!TargetMatches()) throw new InvalidOperationException("原目标文本框已变化，文字保留，未提交。");
         return TsfClient.FindTarget() ?? throw new InvalidOperationException("目标文本框未提供输入通道，文字保留，可复制后手动粘贴。");
     }
-    private async Task WaitNeutralAsync(CancellationToken token)
+    private async Task WaitForReleaseAsync(CancellationToken token, bool requireCenteredSticks = true)
     {
-        Message = "请松开手柄按键并让摇杆回中，随后返回目标"; Notify();
+        Message = requireCenteredSticks ? "请松开手柄按键并让摇杆回中，随后返回目标" : "请松开手柄按键与扳机，随后填入目标"; Notify();
         for (var i = 0; i < 400; i++)
         {
             token.ThrowIfCancellationRequested();
-            if (neutral()) return;
+            if (requireCenteredSticks ? neutral() : buttonsReleased()) return;
             await Task.Delay(20, token);
         }
         throw new InvalidOperationException("等待手柄释放超时，文字已保留。");
     }
-    private async Task InTargetAsync(Func<Task<string?>> edit, CancellationToken token, bool returnToPanel = true)
+    private async Task InTargetAsync(Func<Task<string?>> edit, CancellationToken token, bool returnToPanel = true, bool requireCenteredSticks = true)
     {
         uncertain = false;
-        await WaitNeutralAsync(token);
+        await WaitForReleaseAsync(token, requireCenteredSticks);
         if (!OwnsFocus) throw new InvalidOperationException("您已切换到其他窗口，已停止自动填入。");
         if (!original.IsAlive) throw new InvalidOperationException("原目标窗口已关闭，文字已保留。");
         try
@@ -328,25 +343,39 @@ internal sealed class FocusedInputSession : IDisposable
     }
     private async Task CloseCoreAsync(bool waitForRelease = true)
     {
-        var returnFocus = OwnsFocus && waitForRelease;
-        if (returnFocus)
+        var returnFocus = OwnsFocus;
+        if (returnFocus && waitForRelease)
         {
-            try { await WaitNeutralAsync(CancellationToken.None); }
+            try { await WaitForReleaseAsync(CancellationToken.None); }
             catch (Exception ex) { Message = ex.Message; return; }
         }
         // Preserve any unacknowledged text before clearing the engine on the next session.
         if (!External && RecoveryText().Length > 0) saveDraft(RecoveryText());
-        Enabled = false;
-        await RestoreProfileAsync();
-        if (returnFocus && original.IsAlive && OwnsFocus)
+        string? focusError = null;
+        if (returnFocus && OwnsFocus && original.IsAlive)
+        {
+            // Restore foreground first. Activating the target after restoring its IME can
+            // overwrite that restoration with a queued focus/profile change.
             SetForegroundWindow(original.Root);
+            for (var i = 0; i < 40 && InputMethodSwitcher.Foreground() != original; i++)
+            {
+                var foreground = TsfClient.GetForegroundWindow();
+                if (foreground != 0 && foreground != original.Root && !OwnsFocus) break;
+                await Task.Delay(20);
+            }
+            if (InputMethodSwitcher.Foreground() != original) focusError = "未能恢复原文本框焦点，请返回目标程序核对输入法。";
+        }
+        Enabled = false;
         form.Hide();
-        if (Message.Length == 0) Message = "输入已关闭";
+        Notify(); // Hide the grid too, including disconnect/settings/shutdown paths.
+        var restored = await RestoreProfileAsync();
+        if (restored) Message = "输入已关闭";
+        if (focusError != null) { Message += "；" + focusError; Error?.Invoke(focusError); }
     }
-    private async Task RestoreProfileAsync()
+    private async Task<bool> RestoreProfileAsync()
     {
-        try { if (inputMethods.HasSavedProfiles) await inputMethods.RestoreAsync(); }
-        catch (Exception ex) { Message += "；" + ex.Message; }
+        try { if (inputMethods.HasSavedProfiles) await inputMethods.RestoreAsync(); return true; }
+        catch (Exception ex) { Message += "；" + ex.Message; Error?.Invoke(ex.Message); return false; }
     }
     internal static async Task CopyAsync(string text, CancellationToken token)
     {

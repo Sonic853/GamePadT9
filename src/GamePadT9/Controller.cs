@@ -27,7 +27,8 @@ internal sealed class Controller
         if (externalCompletion == external) return;
         externalCompletion = external; Reset();
     }
-    internal static bool IsNeutral(Gamepad pad) => pad.Buttons == 0 && pad.LT < 100 && pad.RT < 100 &&
+    internal static bool AreButtonsReleased(Gamepad pad) => pad.Buttons == 0 && pad.LT < 100 && pad.RT < 100;
+    internal static bool IsNeutral(Gamepad pad) => AreButtonsReleased(pad) &&
         Math.Abs((int)pad.LX) < 9000 && Math.Abs((int)pad.LY) < 9000 && Math.Abs((int)pad.RX) < 9000 && Math.Abs((int)pad.RY) < 9000;
     private int column = 1, row = 1;
     private Buttons repeating;

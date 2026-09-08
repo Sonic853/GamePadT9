@@ -33,6 +33,7 @@ internal sealed class GamePadApplication : ApplicationContext
         inputMethods = new(root);
         session = new(engine, inputMethods) { Preferences = preferences }; overlay = new(session);
         session.ControlsReleased = () => !deviceConnected || Controller.IsNeutral(latestState);
+        session.ButtonsReleased = () => !deviceConnected || Controller.AreButtonsReleased(latestState);
         session.OverlayBounds = () => overlay.Bounds;
         overlay.LocationChanged += (_, _) => { if (session.Focused is { Enabled: true, External: true } focused) focused.Form.PlaceAbove(overlay.Bounds); };
         session.FocusConfiguration = () =>

@@ -13,9 +13,11 @@ internal sealed class FocusValidation : Form
     private readonly bool x86;
     private readonly List<string> checks = [];
     private readonly List<Process> editors = [];
+    private readonly Dictionary<int, string> profileReports = [];
     private InputSession? active;
     private MainForm? overlay;
     private bool released = true;
+    private Gamepad heldState;
     private InputWindow targetWindow;
     private AutomationElement targetField = null!;
     internal int Result { get; private set; } = 1;
@@ -43,9 +45,10 @@ internal sealed class FocusValidation : Form
     private async Task<AutomationElement> Launch(bool readOnly = false)
     {
         var start = new ProcessStartInfo(Path.Combine(root, "artifacts", x86 ? "test-editor-installed-x86" : "test-editor-installed", "TestEditor.exe")) { UseShellExecute = false };
-        start.ArgumentList.Add(Path.Combine(root, "artifacts", "focus-editor-" + Guid.NewGuid().ToString("N")));
+        var report = Path.Combine(root, "artifacts", "focus-editor-" + Guid.NewGuid().ToString("N"));
+        start.ArgumentList.Add(report); start.ArgumentList.Add("--report-profile");
         if (readOnly) start.ArgumentList.Add("--read-only");
-        var process = Process.Start(start)!; editors.Add(process);
+        var process = Process.Start(start)!; editors.Add(process); profileReports.Add(process.Id, report + ".profile.json");
         for (var i = 0; i < 80; i++)
         {
             await Task.Delay(50); process.Refresh(); if (process.MainWindowHandle == 0) continue;
@@ -69,12 +72,31 @@ internal sealed class FocusValidation : Form
         throw new Exception("Owned editor did not gain foreground focus; no other program will be queried or edited.");
     }
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint hwnd);
+    [DllImport("user32.dll")] private static extern int GetKeyboardLayoutList(int count, [Out] nint[]? layouts);
+    private async Task ExpectProfile(AutomationElement field, InputProfile profile, string description)
+    {
+        var report = profileReports[field.Current.ProcessId];
+        InputProfile? actual = null;
+        for (var i = 0; i < 40; i++)
+        {
+            await Task.Delay(80);
+            if (!File.Exists(report)) continue;
+            using var stream = new FileStream(report, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            actual = JsonSerializer.Deserialize<InputProfile>(stream, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (actual == profile) { Check(true, description); return; }
+        }
+        throw new Exception(description + ": expected " + JsonSerializer.Serialize(profile) + ", actual " + JsonSerializer.Serialize(actual));
+    }
     private async Task Begin(InputBehavior behavior, bool sameSession = false)
     {
         if (!sameSession)
         {
             if (active != null) { await active.ShutdownAsync(); active.Dispose(); overlay?.Dispose(); }
-            active = new(engine, new InputMethodSwitcher(root)) { ControlsReleased = () => released };
+            active = new(engine, new InputMethodSwitcher(root))
+            {
+                ControlsReleased = () => released && Controller.IsNeutral(heldState),
+                ButtonsReleased = () => released && Controller.AreButtonsReleased(heldState)
+            };
             overlay = new(active); active.Changed += () => overlay.Present(4, 1); active.OverlayBounds = () => overlay.Bounds;
         }
         var window = targetWindow;
@@ -105,6 +127,7 @@ internal sealed class FocusValidation : Form
     private async Task Run()
     {
         await VerifyProfiles(); VerifyController();
+        await VerifyProfileRestoration();
         var field = await Launch(); await Focus(field);
         var switcher = new InputMethodSwitcher(root);
         var before = (await switcher.RunAsync(targetWindow, "query")).Before;
@@ -135,12 +158,15 @@ internal sealed class FocusValidation : Form
             released = false;
             var completion = active.Handle(new(PadAction.Complete)); await Task.Delay(120);
             Check(!completion.IsCompleted && active.Focused.OwnsFocus, "Completion waits for held controls before returning focus");
-            released = true; await completion;
+            heldState = new() { RX = 22000 }; released = true;
+            await Task.Delay(120);
+            Check(!completion.IsCompleted && active.Focused.OwnsFocus, "External completion still waits for sticks to center");
+            heldState = default; await completion;
             Check(!active.Enabled && Clipboard.GetText() == testClipboard && Read(field) == "", "Clipboard completion closes input and copies exactly once without filling the target");
         }
         finally
         {
-            released = true;
+            released = true; heldState = default;
             if (Clipboard.ContainsText() && Clipboard.GetText() == testClipboard)
             {
                 for (var attempt = 0; ; attempt++)
@@ -176,19 +202,32 @@ internal sealed class FocusValidation : Form
         Check(!active.Enabled && active.Focused.Draft == "取消待提交" && Read(field) == "你好", "Shutdown cancels a pending release wait without submitting or discarding the draft");
 
         await Focus(field); await Begin(new() { Mode = InputFocusMode.Defocus });
-        await Nihao(); released = false;
+        await Nihao(); heldState = new() { RX = 22000, RY = 22000, Buttons = Buttons.A };
         Snapshot("defocus-input-panel.png", overlay!);
         var relay = active!.Handle(new(PadAction.Confirm)); await Task.Delay(120);
-        Check(!relay.IsCompleted && Read(field) == "你好", "Defocus mode waits for neutral controls before forwarding a candidate");
-        released = true; await relay;
-        Check(active.Enabled && active.Focused!.OwnsFocus && Read(field) == "你好你好", "Defocus mode fills one candidate then returns focus to the panel");
+        Check(!relay.IsCompleted && Read(field) == "你好", "Defocus confirmation waits for the confirm button to be released");
+        heldState.Buttons = 0; await relay.WaitAsync(TimeSpan.FromSeconds(4));
+        Check(active.Enabled && active.Focused!.OwnsFocus && Read(field) == "你好你好", "Defocus mode fills the candidate with the right stick still tilted, then returns focus to the panel");
         await active.Handle(new(PadAction.SwitchMode));
-        await active.Handle(new(PadAction.Region, 2)); await Task.Delay(120);
-        Check(Read(field) == "你好你好3" && active.Focused!.OwnsFocus, "Defocus numeric mode targets the original editor before returning focus");
+        heldState = new() { LX = -22000, LY = 22000, RX = 22000, RY = 22000, RT = 200 };
+        var number = active.Handle(new(PadAction.Region, 2)); await Task.Delay(120);
+        Check(!number.IsCompleted && Read(field) == "你好你好", "Defocus numeric input still waits for trigger release");
+        heldState.RT = 0; await number.WaitAsync(TimeSpan.FromSeconds(4));
+        Check(Read(field) == "你好你好3" && active.Focused!.OwnsFocus, "Defocus numeric input succeeds with both sticks tilted and returns focus");
+        heldState.Buttons = Buttons.R3;
+        var zero = active.Handle(new(PadAction.Region, 4, true)); await Task.Delay(120);
+        Check(!zero.IsCompleted && Read(field) == "你好你好3", "Numeric zero waits for the stick-click button release");
+        heldState.Buttons = 0; await zero.WaitAsync(TimeSpan.FromSeconds(4));
+        Check(Read(field) == "你好你好30", "Numeric zero succeeds without centering the clicked stick");
+        heldState = default;
+        await active.Handle(new(PadAction.Backspace));
         await active.Handle(new(PadAction.Backspace));
         Check(Read(field) == "你好你好" && active.Focused!.OwnsFocus, "Defocus backspace edits the target and returns focus");
         Check(!active.Focused.Form.Visible && TsfClient.GetForegroundWindow() == overlay!.Handle, "Candidate, numeric and backspace relays return to the grid without showing an input window");
-        await active.Enable(false);
+        heldState = new() { LX = 22000 };
+        var closing = active.Enable(false); await Task.Delay(120);
+        Check(!closing.IsCompleted && active.Focused.OwnsFocus, "Closing defocus input still waits for sticks to center");
+        heldState = default; await closing;
         Check((await switcher.RunAsync(targetWindow, "query")).After == before, "Closing defocus mode restores the original input method");
         await Focus(field); await Begin(new() { Mode = InputFocusMode.None }, sameSession: true);
         await active.Enable(false);
@@ -213,9 +252,60 @@ internal sealed class FocusValidation : Form
 
         await Focus(field); await Begin(new() { Mode = InputFocusMode.External });
         active!.Focused!.Form.Editor.Text = "窗口已关闭";
-        editors[0].CloseMainWindow(); await editors[0].WaitForExitAsync();
+        var closedEditor = editors.Single(p => p.Id == field.Current.ProcessId);
+        closedEditor.CloseMainWindow(); await closedEditor.WaitForExitAsync();
         await active.Handle(new(PadAction.Complete));
         Check(active.Enabled && active.Focused.Draft == "窗口已关闭", "Destroyed target never receives text and draft remains available");
+    }
+    private async Task VerifyProfileRestoration()
+    {
+        var field = await Launch(); await Focus(field);
+        var control = new InputMethodSwitcher(root);
+        var initial = (await control.RunAsync(targetWindow, "query")).Before;
+        var layouts = new nint[GetKeyboardLayoutList(0, null)]; GetKeyboardLayoutList(layouts.Length, layouts);
+        var english = new InputProfile(2, 0x0409, Guid.Empty, Guid.Empty, layouts.First(h => ((long)h & 0xffff) == 0x0409).ToString("X"));
+        try
+        {
+            foreach (var mode in new[] { InputFocusMode.Defocus, InputFocusMode.External })
+            {
+                await Focus(field);
+                Check((await control.RunAsync(targetWindow, "restore", english)).Ok, "Prepare a different original keyboard layout for " + mode);
+                await ExpectProfile(field, english, "Target independently reports the original English layout");
+                await Begin(new() { Mode = mode });
+                await Nihao();
+                await active!.Handle(new(mode == InputFocusMode.External ? PadAction.Complete : PadAction.Confirm));
+                if (active.Enabled) await active.Handle(new(PadAction.Disable));
+                Check(InputMethodSwitcher.Foreground() == targetWindow, mode + ": close returns the original target to foreground");
+                await Task.Delay(250);
+                await ExpectProfile(field, english, mode + ": closing restores English after focus returns, using independent TSF readback");
+            }
+
+            // Focus transitions or the target can change its profile while the local draft is open.
+            // Closing must restore the snapshot from activation, not this later profile.
+            await Focus(field); await Begin(new() { Mode = InputFocusMode.External });
+            Check((await control.RunAsync(targetWindow, "restore", initial)).Ok, "Simulate a target profile change while editing externally");
+            await Nihao(); await active!.Handle(new(PadAction.Complete));
+            await ExpectProfile(field, english, "External completion restores the activation-time snapshot, not the submission-time profile");
+
+            foreach (var mode in new[] { InputFocusMode.Defocus, InputFocusMode.External })
+            foreach (var close in new[] { "toggle", "disable", "shutdown" })
+            {
+                await Focus(field); await Begin(new() { Mode = mode });
+                if (mode == InputFocusMode.External) active!.Focused!.Form.Editor.Text = "保留草稿";
+                if (close == "shutdown") { released = false; await active!.ShutdownAsync(); released = true; }
+                else await active!.Handle(new(close == "toggle" ? PadAction.Toggle : PadAction.Disable));
+                Check(!active.Enabled && !overlay!.Visible && InputMethodSwitcher.Foreground() == targetWindow,
+                    mode + "/" + close + ": closes the panel and returns the original target");
+                await ExpectProfile(field, english, mode + "/" + close + ": restores the original input method after returning focus");
+                if (mode == InputFocusMode.External) Check(active.Focused!.Draft == "保留草稿", "Canceling external input preserves its draft");
+            }
+        }
+        finally
+        {
+            released = true;
+            if (active != null) await active.ShutdownAsync();
+            if (targetWindow.IsAlive) await control.RunAsync(targetWindow, "restore", initial);
+        }
     }
     private async Task VerifyProfiles()
     {
