@@ -1,5 +1,7 @@
 # GamePad T9
 
+<img width="780" height="520" alt="PixPin_2026-09-08_16-34-28" src="https://github.com/user-attachments/assets/1daa2826-2e65-4894-bbc6-501a91aa988f" />
+
 Windows Xbox / XInput 手柄九键输入程序。启动 C# 主程序，在目标文本框按 **View + Menu**，程序记录原输入法并优先切换到 **GamePad T9**；该条目不可用时切换到 **小白 T9 输入法**。关闭手柄输入后恢复原输入法。
 
 主程序、手柄控制、九宫格和候选面板使用 **C#**。联动方式在小白原有 **C++ TSF 组件**中加入手柄提交接口，沿用小白的输入法名称和标识。本机也保留“GamePad T9”独立输入法条目作为备用；两种方式均支持 x64 和 x86 目标程序。
