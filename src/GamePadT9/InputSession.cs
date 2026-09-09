@@ -112,7 +112,12 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
     private void ClearComposition() { engine.Clear(); symbols.Close(); boundTarget = null; submissionUnconfirmed = false; }
     public async Task Handle(PadEvent action, int? candidateIndex = null)
     {
-        if (action.Action == PadAction.Toggle) { await Enable(!Enabled && !Busy); return; }
+        if (action.Action == PadAction.Toggle)
+        {
+            if (focused is { External: true, Enabled: true }) await focused.Handle(action, candidateIndex);
+            else await Enable(!Enabled && !Busy);
+            return;
+        }
         if (action.Action == PadAction.Disable) { await Enable(false); return; }
         if (focused != null) { await focused.Handle(action, candidateIndex); return; }
         if (action.Action == PadAction.Complete) return;

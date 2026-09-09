@@ -130,6 +130,9 @@ internal sealed class FocusedInputSession : IDisposable
     private string pendingText = "";
     internal async Task Handle(PadEvent action, int? candidateIndex = null)
     {
+        // The menu chord finishes an external draft through the same guarded
+        // commit path as long A. Explicit cancellation still retains the draft.
+        if (action.Action == PadAction.Toggle && External) action = new(PadAction.Complete);
         if (action.Action is PadAction.Toggle or PadAction.Disable) { await Enable(false); return; }
         if (!Enabled || Busy) return;
         if (!OwnsFocus) { Message = "输入已暂停：请返回输入面板继续"; Notify(); return; }

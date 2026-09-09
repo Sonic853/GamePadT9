@@ -53,7 +53,7 @@ internal sealed class GamePadApplication : ApplicationContext
         tray = new NotifyIcon { Icon = SystemIcons.Application, Text = "GamePad T9 · 双菜单键开启", ContextMenuStrip = menu, Visible = true };
         tray.DoubleClick += async (_, _) => await ToggleFromTray();
         session.Error += message => tray.ShowBalloonTip(5000, "GamePad T9", message, ToolTipIcon.Warning);
-        session.Changed += () => { controller.ConfigureCompletion(session.Enabled && session.ExternalInput); toggle.Text = session.Enabled ? "关闭输入" : "开启输入"; overlay.Present(controller.Region, activeInstance); };
+        session.Changed += () => { controller.ConfigureCompletion(session.Enabled && session.ExternalInput); toggle.Text = session.Enabled ? (session.ExternalInput ? "完成并关闭输入" : "关闭输入") : "开启输入"; overlay.Present(controller.Region, activeInstance); };
         timer.Tick += Tick;
         timer.Start();
         if (warning != null) tray.ShowBalloonTip(5000, "GamePad T9", warning, ToolTipIcon.Warning);
@@ -115,9 +115,10 @@ internal sealed class GamePadApplication : ApplicationContext
         if (ticking)
         {
             if (!connected || devices.Active?.Instance != activeInstance) { await session.Enable(false); return; }
-            // Only cancellation is meaningful while an edit is in flight; never queue stale typing.
+            // The session keeps cancellation separate from a repeated completion
+            // chord, so pressing the chord again cannot abort an external commit.
             foreach (var action in controller.Update(state, Environment.TickCount64))
-                if (action.Action is PadAction.Disable or PadAction.Toggle) await session.Enable(false);
+                if (action.Action is PadAction.Disable or PadAction.Toggle) await session.Handle(action);
             return;
         }
         ticking = true;

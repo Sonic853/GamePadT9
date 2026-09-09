@@ -182,7 +182,7 @@ internal sealed class MainForm : Form
         }
         using var line = new Pen(Color.FromArgb(UserSettings.Alpha(preferences.PanelOpacity), 49, 57, 65)); g.DrawLine(line, 20, 454, 760, 454);
         TextAt(g, session.Busy ? "正在输入…" : session.Message, smallFont, Color.WhiteSmoke, new(20, 466, 740, 22));
-        Hint(g, session.ExternalInput ? "[A] 选词  长按 [A] 完成  [X] 退格  [B] 关闭候选  长按 [B] 保留草稿并关闭  [View] + [Menu] 开关" :
+        Hint(g, session.ExternalInput ? "[A] 选词  长按 [A] 完成  [X] 退格  [B] 关闭候选  长按 [B] 保留草稿并关闭  [View] + [Menu] 完成" :
             "[A] 选词   [LB] / [RB] 翻选   [X] 退格   [B] 关闭候选   长按 [B] 关闭输入   [View] + [Menu] 开关", new(20, 491, 740, 26));
         using var border = new Pen(Color.FromArgb(UserSettings.Alpha(preferences.PanelOpacity), 70, 85, 96)); g.DrawRectangle(border, 0, 0, DesignWidth - 1, DesignHeight - 1);
     }

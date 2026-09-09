@@ -32,7 +32,7 @@ internal sealed partial class FocusInputForm : PanelWindow
         DestinationLabel.Text = clipboard ? "完成后复制到剪贴板" : "完成后填入目标程序";
         CompletionLabel.Text = clipboard ? "完成并复制" : "完成并填入";
         AutomationProperties.SetName(CompleteButton, CompletionLabel.Text + "，长按确认键");
-        CompleteButton.ToolTip = "点击此按钮，或长按手柄确认键 1 秒";
+        CompleteButton.ToolTip = "点击此按钮、长按手柄确认键 1 秒，或同时按下两枚菜单键完成输入";
         CompletionGlyph.Content = glyph;
         CompleteButton.Visibility = external ? Visibility.Visible : Visibility.Collapsed;
         Editor.IsReadOnly = !external;

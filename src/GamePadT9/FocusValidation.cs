@@ -217,9 +217,14 @@ internal sealed class FocusValidation : Form
             for (var i = 0; i < 40 && (!Clipboard.ContainsText() || Clipboard.GetText() != testClipboard); i++) await Task.Delay(25);
             Check(active.Enabled && active.Focused.Draft == testClipboard && Clipboard.GetText() == testClipboard,
                 "The Fluent copy action copies the draft without closing input or discarding text");
+            var chord = new Controller(); chord.ConfigureCompletion(true); chord.Update(default, 0);
+            heldState = new() { Buttons = Buttons.View | Buttons.Menu };
             released = false;
-            var completion = active.Handle(new(PadAction.Complete)); await Task.Delay(120);
-            Check(!completion.IsCompleted && active.Focused.OwnsFocus, "Completion waits for held controls before returning focus");
+            var completion = active.Handle(chord.Update(heldState, 10).Single()); await Task.Delay(120);
+            Check(!completion.IsCompleted && active.Focused.OwnsFocus && chord.Update(heldState, 130).Count == 0,
+                "View + Menu completes the external draft once and waits for the held chord before returning focus");
+            await active.Handle(new(PadAction.Toggle));
+            Check(!completion.IsCompleted && active.Enabled, "Repeated View + Menu while completing does not cancel the in-flight clipboard operation");
             Check(active.Focused.Form.Editor.IsReadOnly && !active.Focused.Form.CompleteButton.IsEnabled && !active.Focused.Form.ClearButton.IsEnabled && !active.Focused.Form.CopyButton.IsEnabled,
                 "External submission locks editing and duplicate actions while waiting for controls to release");
             heldState = new() { RX = 22000 }; released = true;
@@ -262,10 +267,10 @@ internal sealed class FocusValidation : Form
         Check(!active.Enabled && !active.Busy && !active.Focused.Form.IsVisible && active.Focused.Draft == "保留草稿" && InputMethodSwitcher.Foreground() == targetWindow,
             "Closing the compact Fluent window follows the normal focus restoration path and retains the draft");
         await Focus(field); await Begin(new() { Mode = InputFocusMode.External }, sameSession: true);
-        active.Focused.Form.Editor.Text = new string('字', 1025); await active.Handle(new(PadAction.Complete));
+        active.Focused.Form.Editor.Text = new string('字', 1025); await active.Handle(new(PadAction.Toggle));
         Check(active.Enabled && active.Focused.Draft.Length == 1025 && Read(field) == "你好", "Oversize TSF submissions retain the draft without partial insertion");
         active.Focused.Form.Editor.Text = "焦点保护";
-        await Focus(field); await active.Handle(new(PadAction.Complete));
+        await Focus(field); await active.Handle(new(PadAction.Toggle));
         Check(active.Enabled && Read(field) == "你好" && active.Focused.Draft == "焦点保护", "User focus changes stop automatic completion without stealing focus");
         await active.ShutdownAsync();
 
@@ -320,7 +325,7 @@ internal sealed class FocusValidation : Form
         await active.Enable(false);
 
         var readOnly = await Launch(true); await Focus(readOnly); await Begin(new() { Mode = InputFocusMode.External });
-        active!.Focused!.Form.Editor.Text = "不能丢失"; await active.Handle(new(PadAction.Complete));
+        active!.Focused!.Form.Editor.Text = "不能丢失"; await active.Handle(new(PadAction.Toggle));
         Check(active.Enabled && active.Focused.Draft == "不能丢失" && Read(readOnly) == "", "Read-only target failure preserves the draft and keeps input open");
         await active.ShutdownAsync();
 
@@ -328,7 +333,7 @@ internal sealed class FocusValidation : Form
         active!.Focused!.Form.Editor.Text = "窗口已关闭";
         var closedEditor = editors.Single(p => p.Id == field.Current.ProcessId);
         closedEditor.CloseMainWindow(); await closedEditor.WaitForExitAsync();
-        await active.Handle(new(PadAction.Complete));
+        await active.Handle(new(PadAction.Toggle));
         Check(active.Enabled && active.Focused.Draft == "窗口已关闭", "Destroyed target never receives text and draft remains available");
     }
     private async Task VerifyProfileRestoration()
@@ -345,9 +350,13 @@ internal sealed class FocusValidation : Form
                 await Focus(field);
                 Check((await control.RunAsync(targetWindow, "restore", english)).Ok, "Prepare a different original keyboard layout for " + mode);
                 await ExpectProfile(field, english, "Target independently reports the original English layout");
+                var beforeComposition = Read(field);
                 await Begin(new() { Mode = mode });
                 await Nihao();
-                await active!.Handle(new(mode == InputFocusMode.External ? PadAction.Complete : PadAction.Confirm));
+                await active!.Handle(new(mode == InputFocusMode.External ? PadAction.Toggle : PadAction.Confirm));
+                if (mode == InputFocusMode.External)
+                    Check(!active.Enabled && Read(field) == beforeComposition + "你好" && active.Focused!.Draft == "",
+                        "View + Menu confirms the pending external candidate, fills the target and clears the acknowledged draft");
                 if (active.Enabled) await active.Handle(new(PadAction.Disable));
                 Check(InputMethodSwitcher.Foreground() == targetWindow, mode + ": close returns the original target to foreground");
                 await Task.Delay(250);
@@ -365,18 +374,35 @@ internal sealed class FocusValidation : Form
             foreach (var close in new[] { "toggle", "disable", "shutdown" })
             {
                 await Focus(field); await Begin(new() { Mode = mode });
+                var previousText = Read(field);
                 if (mode == InputFocusMode.External) active!.Focused!.Form.Editor.Text = "保留草稿";
                 if (close == "shutdown") { released = false; await active!.ShutdownAsync(); released = true; }
+                else if (mode == InputFocusMode.External && close == "toggle")
+                {
+                    heldState = new() { Buttons = Buttons.View | Buttons.Menu };
+                    var completing = active!.Handle(new(PadAction.Toggle)); await Task.Delay(120);
+                    Check(!completing.IsCompleted && active.Focused!.Draft == "保留草稿" && Read(field) == previousText,
+                        "Target completion waits for View + Menu release before filling the original program");
+                    await active.Handle(new(PadAction.Toggle));
+                    Check(!completing.IsCompleted && active.Enabled, "A repeated completion chord does not abort or duplicate target submission");
+                    heldState = default; await completing;
+                }
                 else await active!.Handle(new(close == "toggle" ? PadAction.Toggle : PadAction.Disable));
                 Check(!active.Enabled && !overlay!.Visible && InputMethodSwitcher.Foreground() == targetWindow,
                     mode + "/" + close + ": closes the panel and returns the original target");
                 await ExpectProfile(field, english, mode + "/" + close + ": restores the original input method after returning focus");
-                if (mode == InputFocusMode.External) Check(active.Focused!.Draft == "保留草稿", "Canceling external input preserves its draft");
+                if (mode == InputFocusMode.External)
+                {
+                    if (close == "toggle") Check(active.Focused!.Draft == "" && Read(field) == previousText + "保留草稿",
+                        "View + Menu fills the target exactly once, closes input and clears the completed draft");
+                    else Check(active.Focused!.Draft == "保留草稿" && Read(field) == previousText,
+                        "Explicit cancellation preserves the external draft without filling the target");
+                }
             }
         }
         finally
         {
-            released = true;
+            released = true; heldState = default;
             if (active != null) await active.ShutdownAsync();
             if (targetWindow.IsAlive) await control.RunAsync(targetWindow, "restore", initial);
         }
