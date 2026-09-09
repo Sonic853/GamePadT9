@@ -42,12 +42,12 @@
                                 <StackPanel>
                                     <TextBlock Text="输入映射" Style="{StaticResource SectionHeading}"/>
                                     <Grid Margin="0,14,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="240"/></Grid.ColumnDefinitions>
-                                        <StackPanel VerticalAlignment="Center"><TextBlock Text="选择九宫格区域"/><TextBlock Text="移动摇杆选择，按下摇杆确认" Style="{StaticResource Description}" FontSize="12"/></StackPanel>
+                                        <StackPanel VerticalAlignment="Center"><TextBlock Text="选择九宫格区域"/><TextBlock Text="另一摇杆推出选字母，回中选整组" Style="{StaticResource Description}" FontSize="12"/></StackPanel>
                                         <ComboBox x:Name="StickSelector" Grid.Column="1" MinHeight="44" AutomationProperties.Name="选择九宫格的摇杆"/>
                                     </Grid>
                                     <Border Height="1" Background="#3D4547" Margin="0,18"/>
                                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="240"/></Grid.ColumnDefinitions>
-                                        <StackPanel VerticalAlignment="Center"><TextBlock Text="确认区域输入"/><TextBlock Text="按下扳机输入当前区域" Style="{StaticResource Description}" FontSize="12"/></StackPanel>
+                                        <StackPanel VerticalAlignment="Center"><TextBlock Text="确认区域输入"/><TextBlock Text="扳机输入字母或整组；摇杆按下输入整组" Style="{StaticResource Description}" FontSize="12"/></StackPanel>
                                         <ComboBox x:Name="TriggerSelector" Grid.Column="1" MinHeight="44" AutomationProperties.Name="确认输入的扳机"/>
                                     </Grid>
                                 </StackPanel>

@@ -53,7 +53,7 @@ internal sealed class GamePadApplication : ApplicationContext
         tray = new NotifyIcon { Icon = SystemIcons.Application, Text = "GamePad T9 · 双菜单键开启", ContextMenuStrip = menu, Visible = true };
         tray.DoubleClick += async (_, _) => await ToggleFromTray();
         session.Error += message => tray.ShowBalloonTip(5000, "GamePad T9", message, ToolTipIcon.Warning);
-        session.Changed += () => { controller.ConfigureCompletion(session.Enabled && session.ExternalInput); toggle.Text = session.Enabled ? (session.ExternalInput ? "完成并关闭输入" : "关闭输入") : "开启输入"; overlay.Present(controller.Region, activeInstance); };
+        session.Changed += () => { controller.ConfigureCompletion(session.Enabled && session.ExternalInput); toggle.Text = session.Enabled ? (session.ExternalInput ? "完成并关闭输入" : "关闭输入") : "开启输入"; overlay.Present(controller.Region, activeInstance, controller.Detail); };
         timer.Tick += Tick;
         timer.Start();
         if (warning != null) tray.ShowBalloonTip(5000, "GamePad T9", warning, ToolTipIcon.Warning);
@@ -139,7 +139,7 @@ internal sealed class GamePadApplication : ApplicationContext
                 foreach (var action in controller.Update(state, Environment.TickCount64)) await session.Handle(action);
             if (Environment.TickCount64 - focusCheck >= 250)
             { focusCheck = Environment.TickCount64; await session.CheckFocus(); }
-            overlay.Present(controller.Region, activeInstance);
+            overlay.Present(controller.Region, activeInstance, controller.Detail);
         }
         finally { ticking = false; }
     }

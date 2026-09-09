@@ -45,6 +45,8 @@ internal sealed class RimeEngine : IDisposable
         Directory.CreateDirectory(settings.UserPath);
         Directory.CreateDirectory(Path.Combine(settings.UserPath, "logs"));
         Directory.CreateDirectory(Path.Combine(settings.UserPath, "build"));
+        var mixed = MixedSchema.Locate(settings, Path.Combine(Settings.FindRoot(), "cache", "mixed"));
+        Directory.CreateDirectory(mixed.Build);
         var traits = new Traits
         {
             DataSize = Marshal.SizeOf<Traits>() - sizeof(int),
@@ -52,16 +54,32 @@ internal sealed class RimeEngine : IDisposable
             User = Utf8(settings.UserPath), Name = Utf8("GamePadT9"), Code = Utf8("gamepad_t9"),
             Version = Utf8("0.1"), AppName = Utf8("rime.gamepadt9"),
             LogLevel = 1, LogDir = Utf8(Path.Combine(settings.UserPath, "logs")),
-            Prebuilt = Utf8(settings.PrebuiltPath), Staging = Utf8(Path.Combine(settings.UserPath, "build"))
+            Prebuilt = Utf8(settings.PrebuiltPath), Staging = Utf8(mixed.Build)
         };
         try
         {
             Native.RimeSetup(ref traits);
+            if (!mixed.Ready)
+            {
+                Directory.CreateDirectory(mixed.Source);
+                var deploy = traits;
+                deploy.Shared = Utf8(mixed.Source); deploy.User = deploy.Shared;
+                try
+                {
+                    Native.RimeDeployerInitialize(ref deploy); initialized = true;
+                    var source = mixed.WriteSource(settings.Schema);
+                    if (Native.RimeDeploySchema(source) == 0 || !File.Exists(Path.Combine(mixed.Build, mixed.Id + ".prism.bin")) ||
+                        !File.Exists(Path.Combine(mixed.Build, mixed.Id + ".schema.yaml")))
+                        throw new InvalidOperationException("无法生成混合拼音方案，请检查日志：" + Path.Combine(settings.UserPath, "logs"));
+                    File.WriteAllText(Path.Combine(mixed.Build, "ready"), mixed.Id);
+                    mixed.SaveManifest();
+                }
+                finally { Native.RimeFinalize(); initialized = false; }
+            }
             Native.RimeInitialize(ref traits); initialized = true;
-            // Use the already-deployed original schema. Never deploy into the user's installation.
             session = Native.RimeCreateSession();
-            if (session == 0 || Native.RimeSelectSchema(session, settings.Schema) == 0)
-                throw new InvalidOperationException("无法加载原版小白方案，请查看 artifacts/rime-user/logs。");
+            if (session == 0 || Native.RimeSelectSchema(session, mixed.Id) == 0)
+                throw new InvalidOperationException("无法加载 GamePad T9 混合拼音方案，请检查日志：" + Path.Combine(settings.UserPath, "logs"));
             Native.RimeSetOption(session, "ascii_mode", 0);
             Refresh();
         }
@@ -86,6 +104,17 @@ internal sealed class RimeEngine : IDisposable
     {
         if (PendingCommit.Length != 0) throw new InvalidOperationException("尚有未确认的 TSF 提交，不能继续输入。");
         Native.RimeProcessKey(session, key, 0); Refresh();
+    }
+    public void InputLetter(char letter)
+    {
+        if (letter is < 'a' or > 'z') throw new ArgumentOutOfRangeException(nameof(letter));
+        Process(letter);
+    }
+    internal void Input(PadEvent action)
+    {
+        if (action.Action != PadAction.Region || (uint)action.Region >= 9) throw new ArgumentOutOfRangeException(nameof(action));
+        var key = T9Layout.Key(action);
+        if (key == 0) InputRegion(action.Region); else Process(key);
     }
     public void Confirm(int? index = null)
     {
@@ -148,6 +177,8 @@ internal sealed class RimeEngine : IDisposable
     {
         [DllImport("rime.dll", CallingConvention = CallingConvention.Cdecl)] internal static extern void RimeSetup(ref Traits traits);
         [DllImport("rime.dll", CallingConvention = CallingConvention.Cdecl)] internal static extern void RimeInitialize(ref Traits traits);
+        [DllImport("rime.dll", CallingConvention = CallingConvention.Cdecl)] internal static extern void RimeDeployerInitialize(ref Traits traits);
+        [DllImport("rime.dll", CallingConvention = CallingConvention.Cdecl)] internal static extern int RimeDeploySchema([MarshalAs(UnmanagedType.LPUTF8Str)] string source);
         [DllImport("rime.dll", CallingConvention = CallingConvention.Cdecl)] internal static extern void RimeFinalize();
         [DllImport("rime.dll", CallingConvention = CallingConvention.Cdecl)] internal static extern nuint RimeCreateSession();
         [DllImport("rime.dll", CallingConvention = CallingConvention.Cdecl)] internal static extern int RimeDestroySession(nuint session);

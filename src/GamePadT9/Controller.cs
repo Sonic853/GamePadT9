@@ -12,7 +12,7 @@ internal struct Gamepad
     public short LX, LY, RX, RY;
 }
 internal enum PadAction { Toggle, SwitchMode, Region, Confirm, Cancel, Disable, Backspace, Previous, Next, PagePrevious, PageNext, Complete }
-internal readonly record struct PadEvent(PadAction Action, int Region = 4, bool StickClick = false);
+internal readonly record struct PadEvent(PadAction Action, int Region = 4, bool StickClick = false, int Detail = -1);
 
 internal sealed class Controller
 {
@@ -34,6 +34,25 @@ internal sealed class Controller
     private Buttons repeating;
     private long nextRepeat;
     public int Region => row * 3 + column;
+    internal int Detail { get; private set; } = -1;
+    private bool detailRight = true, detailUp = true;
+    private void UpdateDetail(int x, int y)
+    {
+        // Radial hysteresis opens at about 49% travel and closes below 34%.
+        var magnitudeSquared = (long)x * x + (long)y * y;
+        if (magnitudeSquared < 11000L * 11000) { Detail = -1; return; }
+        if (Detail < 0)
+        {
+            if (magnitudeSquared < 16000L * 16000) return;
+            detailRight = x >= 0; detailUp = y >= 0;
+        }
+        else
+        {
+            if (Math.Abs(x) > 2500) detailRight = x > 0;
+            if (Math.Abs(y) > 2500) detailUp = y > 0;
+        }
+        Detail = T9Layout.Quadrant(detailRight, detailUp);
+    }
     private static int Axis(int value, int old)
     {
         const int enter = 12500, leave = 9000;
@@ -43,7 +62,7 @@ internal sealed class Controller
         if (old == 0 && value < -leave) return 0;
         return 1;
     }
-    public void Reset() { initialized = triggerHeld = chordHeld = longB = false; row = column = 1; repeating = 0; }
+    public void Reset() { initialized = triggerHeld = chordHeld = longB = false; row = column = 1; Detail = -1; repeating = 0; }
     public void Configure(UserSettings settings)
     {
         settings.Validate();
@@ -56,6 +75,7 @@ internal sealed class Controller
         var stableRegion = Region;
         column = Axis(stick == ControlSide.Left ? pad.LX : pad.RX, column);
         row = Axis(-(int)(stick == ControlSide.Left ? pad.LY : pad.RY), row);
+        UpdateDetail(stick == ControlSide.Left ? pad.RX : pad.LX, stick == ControlSide.Left ? pad.RY : pad.LY);
         var triggerValue = trigger == ControlSide.Left ? pad.LT : pad.RT;
         var stickButton = stick == ControlSide.Left ? Buttons.L3 : Buttons.R3;
         var chord = (pad.Buttons & (Buttons.Menu | Buttons.View)) == (Buttons.Menu | Buttons.View);
@@ -98,7 +118,7 @@ internal sealed class Controller
             else if (PressOrRepeat(Buttons.RB)) events.Add(new(PadAction.Next));
             else if (Down(Buttons.Left)) events.Add(new(PadAction.PagePrevious));
             else if (Down(Buttons.Right)) events.Add(new(PadAction.PageNext));
-            else if (triggerDown || Down(stickButton)) events.Add(new(PadAction.Region, Down(stickButton) ? stableRegion : Region, Down(stickButton)));
+            else if (triggerDown || Down(stickButton)) events.Add(new(PadAction.Region, Down(stickButton) ? stableRegion : Region, Down(stickButton), Down(stickButton) ? -1 : Detail));
         }
         previous = pad; chordHeld = chord; return events;
     }

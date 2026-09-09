@@ -183,6 +183,8 @@ internal sealed class FocusValidation : Form
     [DllImport("user32.dll")] private static extern bool GetWindowRect(nint window, out WindowBounds bounds);
     private async Task Run()
     {
+        await VerifySpaces();
+        await VerifyMixedInput();
         await VerifyProfiles(); VerifyController();
         await VerifyProfileRestoration();
         var field = await Launch(); await Focus(field);
@@ -336,6 +338,92 @@ internal sealed class FocusValidation : Form
         closedEditor.CloseMainWindow(); await closedEditor.WaitForExitAsync();
         await active.Handle(new(PadAction.Toggle));
         Check(active.Enabled && active.Focused.Draft == "窗口已关闭", "Destroyed target never receives text and draft remains available");
+    }
+    private async Task VerifySpaces()
+    {
+        var field = await Launch();
+        foreach (var behavior in new[] { InputFocusMode.None, InputFocusMode.Defocus, InputFocusMode.External })
+        {
+            await Focus(field); ((ValuePattern)field.GetCurrentPattern(ValuePattern.Pattern)).SetValue("");
+            await Begin(new() { Mode = behavior, Completion = CompletionDestination.Target });
+            var beforeEvents = NumericInput.SentKeyEvents;
+            var pad = new Controller(); pad.ConfigureCompletion(behavior == InputFocusMode.External); pad.Update(default, 0);
+            long time = 10;
+            string Current() => behavior == InputFocusMode.External ? active!.Focused!.Draft : Read(field);
+            async Task ShortA()
+            {
+                var actions = pad.Update(new() { Buttons = Buttons.A }, time);
+                Check(pad.Update(new() { Buttons = Buttons.A }, time + 100).Count == 0, behavior + ": holding A does not repeat selection or space");
+                actions.AddRange(pad.Update(default, time + 150)); time += 200;
+                foreach (var action in actions) await active!.Handle(action);
+            }
+            await ShortA(); Check(Current() == " ", behavior + ": empty T9 input inserts one ASCII space");
+            await active!.Handle(new(PadAction.SwitchMode)); await ShortA();
+            Check(Current() == "  ", behavior + ": empty numeric input also inserts one space");
+            await active.Handle(new(PadAction.SwitchMode)); await Nihao();
+            var preedit = engine.View.Preedit;
+            await active.Handle(new(PadAction.SwitchMode)); await ShortA();
+            Check(Current() == "  " && engine.View.Preedit == preedit, behavior + ": hidden T9 composition in numeric mode prevents an accidental space");
+            await active.Handle(new(PadAction.SwitchMode)); await ShortA();
+            Check(Current() == "  你好", behavior + ": candidate selection never adds a trailing space");
+            await active.Handle(new(PadAction.Region, 0)); await ShortA();
+            Check(Current() == "  你好，", behavior + ": the symbol menu retains priority over inserting a space");
+            await ShortA(); Check(Current() == "  你好， ", behavior + ": A inserts space after the last candidate is committed");
+            if (behavior == InputFocusMode.External)
+            {
+                Check(pad.Update(new() { Buttons = Buttons.A }, time).Count == 0, "External long A does not insert a space on press");
+                await active.Handle(pad.Update(new() { Buttons = Buttons.A }, time + 1000).Single());
+                Check(pad.Update(default, time + 1100).Count == 0 && !active.Enabled && Read(field) == "  你好， ",
+                    "External long A completes the draft without adding a space on release");
+            }
+            else await active.Enable(false);
+            Check(!active.Enabled && Read(field) == "  你好， " && NumericInput.SentKeyEvents == beforeEvents,
+                behavior + ": spaces reach the target as text without simulated keyboard events");
+        }
+        var process = editors.Single(p => p.Id == field.Current.ProcessId);
+        process.CloseMainWindow(); await process.WaitForExitAsync();
+    }
+    private async Task VerifyMixedInput()
+    {
+        var field = await Launch();
+        foreach (var behavior in new[] { InputFocusMode.None, InputFocusMode.Defocus, InputFocusMode.External })
+        {
+            await Focus(field);
+            ((ValuePattern)field.GetCurrentPattern(ValuePattern.Pattern)).SetValue("");
+            await Begin(new() { Mode = behavior, Completion = CompletionDestination.Target });
+            var beforeEvents = NumericInput.SentKeyEvents;
+            // n + GHI + h + ABC(blank) + o mixes exact and ambiguous tokens.
+            PadEvent[] code = [new(PadAction.Region, 5, Detail: 1), new(PadAction.Region, 3),
+                new(PadAction.Region, 3, Detail: 1), new(PadAction.Region, 1, Detail: 3), new(PadAction.Region, 5, Detail: 2)];
+            foreach (var action in code) await active!.Handle(action);
+            Check(Validation.Find(engine, "你好"), behavior + ": mixed events including the blank preserve the expected candidate");
+            if (behavior == InputFocusMode.External)
+            {
+                foreach (var (name, region, detail) in new[] { ("abc", 1, 0), ("blank", 1, 3), ("pqrs", 6, 3), ("symbols", 0, 2) })
+                {
+                    overlay!.Present(region, 1, detail);
+                    using var image = overlay.CreateSnapshot();
+                    image.Save(Path.Combine(root, "artifacts", "mixed-" + name + ".png"));
+                    Check(overlay.HighlightedDetail == detail, "Visible detail selection survives candidate updates: " + name);
+                }
+                overlay!.Present(1, 1, -1); Check(overlay.HighlightedDetail == -1, "Centering restores the whole group view");
+                await active!.Handle(new(PadAction.SwitchMode)); overlay.Present(1, 1, 3);
+                Check(overlay.HighlightedDetail == -1, "Numeric mode always displays whole digit cells");
+                await active.Handle(new(PadAction.SwitchMode));
+            }
+            await active!.Handle(new(PadAction.Region, 0, Detail: 2));
+            await active.Handle(new(PadAction.Region, 0, Detail: 1));
+            Check((behavior == InputFocusMode.External ? active.Focused!.Draft : Read(field)) == "你好，。",
+                behavior + ": punctuation commits the mixed candidate and both Chinese marks through the production route");
+            await active.Handle(new(PadAction.Region, 0, Detail: 3));
+            Check(active.View.Candidates.Length > 0 && active.View.Candidates.Any(c => c.Text == "，"), behavior + ": upper symbol half opens the symbol menu");
+            await active.Handle(new(PadAction.Cancel));
+            if (behavior == InputFocusMode.External) await active.Handle(new(PadAction.Toggle)); else await active.Enable(false);
+            Check(!active.Enabled && Read(field) == "你好，。" && NumericInput.SentKeyEvents == beforeEvents,
+                behavior + ": mixed input finishes without synthetic keyboard events");
+        }
+        var process = editors.Single(p => p.Id == field.Current.ProcessId);
+        process.CloseMainWindow(); await process.WaitForExitAsync();
     }
     private async Task VerifyProfileRestoration()
     {

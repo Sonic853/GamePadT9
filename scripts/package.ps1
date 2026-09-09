@@ -1,6 +1,16 @@
-param([switch]$SkipNative)
+param([switch]$SkipNative, [switch]$SkipMixedCache, [string]$SevenZipPath)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+if (!$SevenZipPath) {
+    $command = Get-Command 7z,7zz,7za -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($command) { $SevenZipPath = $command.Source }
+    else {
+        $SevenZipPath = @($env:ProgramW6432, $env:ProgramFiles) | Where-Object { $_ } |
+            ForEach-Object { Join-Path $_ '7-Zip\7z.exe' } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    }
+}
+if (!$SevenZipPath -or !(Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) { throw 'Extreme ZIP compression requires 7-Zip. Install it or pass -SevenZipPath.' }
+$SevenZipPath = [IO.Path]::GetFullPath($SevenZipPath)
 if (!$SkipNative) {
     foreach ($architecture in @('x64','x86')) {
         & (Join-Path $PSScriptRoot 'build-standalone.ps1') -Architecture $architecture
@@ -36,11 +46,23 @@ $hashes | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $folder 'componen
 [IO.File]::WriteAllText((Join-Path $folder 'Settings.cmd'), "@echo off`r`nstart `"GamePad T9`" `"%~dp0GamePadT9.exe`" --settings`r`n", [Text.Encoding]::ASCII)
 Copy-Item -LiteralPath (Join-Path $projectRoot 'PORTABLE.md') -Destination (Join-Path $folder 'README.md')
 if (Test-Path -LiteralPath (Join-Path $projectRoot 'LICENSE')) { Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination $folder }
+if (!$SkipMixedCache) {
+    # Export only verified compiled spelling data. No source copy, user database or logs.
+    dotnet run --project (Join-Path $projectRoot 'src\GamePadT9\GamePadT9.csproj') -c Release --no-build -- --export-mixed-cache (Join-Path $folder 'cache\mixed')
+    if ($LASTEXITCODE -ne 0) { throw 'Mixed cache export failed. Start GamePadT9 once to generate it, or pass -SkipMixedCache.' }
+}
 # This is an allowlisted package, never a copy of artifacts/ or the developer workspace.
 $dist = Join-Path $projectRoot 'dist'
 New-Item -ItemType Directory -Force $dist | Out-Null
 $zip = Join-Path $dist ('GamePadT9-Portable-Windows-x64-NoRuntime-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.zip')
-Compress-Archive -LiteralPath $folder -DestinationPath $zip -CompressionLevel Optimal
+Push-Location -LiteralPath $stage
+try {
+    # Maximum documented Deflate settings, compatible with Windows ZIP extraction.
+    & $SevenZipPath a -tzip -mm=Deflate -mx=9 -mfb=258 -mpass=15 -mmt=off -mtc=off -mta=off -bd -bso0 $zip 'GamePadT9-Portable'
+    if ($LASTEXITCODE -ne 0) { throw 'Extreme ZIP compression failed.' }
+    & $SevenZipPath t -bd -bso0 $zip
+    if ($LASTEXITCODE -ne 0) { throw 'ZIP integrity verification failed.' }
+} finally { Pop-Location }
 $sha = (Get-FileHash -LiteralPath $zip).Hash
 [IO.File]::WriteAllText($zip + '.sha256', $sha + '  ' + [IO.Path]::GetFileName($zip) + "`r`n")
 [IO.File]::WriteAllText((Join-Path $projectRoot 'artifacts\portable-package-path.txt'), $folder)

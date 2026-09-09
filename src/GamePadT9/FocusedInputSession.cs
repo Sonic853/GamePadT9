@@ -155,6 +155,13 @@ internal sealed class FocusedInputSession : IDisposable
                 if (engine.View.Preedit.Length > 0) { Mode = InputMode.T9; Message = "还有未确认的候选，请继续选词后完成"; return; }
                 await CompleteAsync(token); return;
             }
+            if (action.Action == PadAction.Confirm && candidateIndex == null && !symbols.Visible &&
+                engine.View.Preedit.Length == 0 && engine.View.Candidates.Length == 0 &&
+                engine.PendingCommit.Length == 0 && pendingText.Length == 0)
+            {
+                await CommitAsync(" ", token);
+                Message = External ? "空格已加入输入栏" : "空格已填入目标"; return;
+            }
             if (Mode == InputMode.Numeric && action.Action == PadAction.Region)
             {
                 var digit = action.StickClick ? 0 : action.Region + 1;
@@ -188,9 +195,9 @@ internal sealed class FocusedInputSession : IDisposable
                     case PadAction.Region: symbols.Close(); break;
                 }
             }
-            if (Mode == InputMode.T9 && action.Action == PadAction.Region && action.Region == 0 && engine.View.Preedit.Length == 0)
+            if (Mode == InputMode.T9 && action.Action == PadAction.Region && action.Region == 0 && T9Layout.Key(action) == 0 && engine.View.Preedit.Length == 0)
             { symbols.Open(); Message = "请选择标点"; return; }
-            if (Mode == InputMode.T9 && action.Action == PadAction.Region) engine.InputRegion(action.Region);
+            if (Mode == InputMode.T9 && action.Action == PadAction.Region) engine.Input(action);
             else if (action.Action == PadAction.Backspace)
             {
                 if (Mode == InputMode.T9 && engine.View.Preedit.Length > 0) engine.Process(0xFF08);
@@ -216,7 +223,7 @@ internal sealed class FocusedInputSession : IDisposable
             Notify();
             if (engine.PendingCommit.Length > 0)
             { await CommitAsync(engine.PendingCommit, token); engine.AcknowledgeCommit(); }
-            Message = External ? "短按确认键选词，长按完成输入" : "选词后自动填入目标";
+            Message = External ? "短按选词，无候选时输入空格，长按完成输入" : "选词后自动填入目标，无候选时确认键输入空格";
         }
         catch (OperationCanceledException) { Message = "操作已取消，未完成的文字保留"; }
         catch (Exception ex)

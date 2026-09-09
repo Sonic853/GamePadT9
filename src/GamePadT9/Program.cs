@@ -27,6 +27,22 @@ internal static class Program
                 Console.WriteLine(JsonSerializer.Serialize(result)); return result.Ok ? 0 : 1;
             }
             if (args.Contains("--verify-components")) return ComponentValidation.Run(root);
+            if (args.Contains("--verify-cache")) return CacheValidation.Run(root);
+            if (args.Length == 2 && args[0] == "--export-mixed-cache")
+            {
+                var cache = MixedSchema.Locate(Settings.Load(root), Path.Combine(root, "cache", "mixed"));
+                var exported = cache.CopyTo(Path.GetFullPath(args[1]));
+                Console.WriteLine(JsonSerializer.Serialize(new { exported.Id, exported.Fingerprint })); return 0;
+            }
+            if (args.Contains("--verify-mixed"))
+            {
+                // Use a separate user database so this check can run beside the tray host.
+                using var validationLock = new Mutex(true, "Local\\GamePadT9.MixedValidation", out var validationFirst);
+                if (!validationFirst) throw new InvalidOperationException("混合输入验证已在运行。");
+                var validationSettings = MixedValidation.Prepare(root);
+                using var validationEngine = new RimeEngine(validationSettings);
+                return MixedValidation.Run(root, validationEngine);
+            }
             using var instanceLock = new Mutex(true, "Local\\GamePadT9.Validation.Host", out var first);
             if (!first) throw new InvalidOperationException("GamePad T9 已在运行。请先关闭已有实例。");
             Settings runtime;

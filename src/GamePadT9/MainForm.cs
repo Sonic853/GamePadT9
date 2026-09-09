@@ -11,7 +11,7 @@ internal sealed class MainForm : Form
 {
     private const int DesignWidth = 780, DesignHeight = 520;
     private readonly InputSession session;
-    private int region = 4;
+    private int region = 4, detail = -1;
     private uint? pad;
     private GamepadDevice? device;
     private readonly ButtonGlyphs glyphs = new();
@@ -36,6 +36,7 @@ internal sealed class MainForm : Form
     private long lastRaise;
     internal int DisplayedCandidateCount => session.View.Candidates.Length;
     internal int HighlightedRegion => region;
+    internal int HighlightedDetail => session.Mode == InputMode.T9 ? detail : -1;
     internal InputMode DisplayedMode => session.Mode;
     internal string DisplayedPreedit => string.Create(session.View.Preedit.Length, session.View.Preedit, static (output, original) =>
     {
@@ -69,7 +70,7 @@ internal sealed class MainForm : Form
             foreach (ToolStripItem item in recoveryMenu.Items) item.Enabled = session.Focused is { Busy: false, HasRetainedText: true };
         };
     }
-    private void OnSessionChanged() { if (!IsDisposed) { dirty = true; Present(region, pad); } }
+    private void OnSessionChanged() { if (!IsDisposed) { dirty = true; Present(region, pad, detail); } }
     internal void ApplySettings(UserSettings settings)
     {
         settings.Validate(); session.Preferences = settings; dirty = true;
@@ -78,11 +79,11 @@ internal sealed class MainForm : Form
         UpdateBackdrop();
     }
     internal void UseDevice(GamepadDevice? value) { if (device != value) { device = value; dirty = true; } }
-    internal void Present(int selectedRegion, uint? controllerSlot)
+    internal void Present(int selectedRegion, uint? controllerSlot, int selectedDetail = -1)
     {
-        var changed = region != selectedRegion || pad != controllerSlot;
+        var changed = region != selectedRegion || pad != controllerSlot || detail != selectedDetail;
         dirty |= changed;
-        region = selectedRegion; pad = controllerSlot;
+        region = selectedRegion; pad = controllerSlot; detail = selectedDetail;
         var focusRequired = session.Focused is { Enabled: true, External: false };
         if (acceptsFocus != focusRequired) { acceptsFocus = focusRequired; if (IsHandleCreated) UpdateStyles(); }
         if (!session.Enabled) { if (Visible) Hide(); return; }
@@ -146,19 +147,21 @@ internal sealed class MainForm : Form
         Fill(g, modeRect, panelColor);
         Hint(g, session.Mode == InputMode.T9 ? "[Y] 九键中文" : "[Y] 数字输入", modeRect, Accent, true);
         TextAt(g, "×", gridFont, Muted, closeRect, true);
-        string[] labels = session.Mode == InputMode.T9 ? ["符号", "ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ"] : ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+        string[] labels = session.Mode == InputMode.T9 ? T9Layout.Groups : ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
         for (var i = 0; i < 9; i++)
         {
             var rect = Cell(i); var selected = i == region;
+            if (selected && HighlightedDetail >= 0) { DrawDetails(g, rect, gridColor, highlight); continue; }
             Fill(g, rect, selected ? highlight : gridColor);
             TextAt(g, labels[i], gridFont, selected ? Background : Color.White, rect, true);
         }
-        Hint(g, session.Mode == InputMode.T9 ? $"[{preferences.TriggerLabel}] / [{preferences.StickClickLabel}] 输入高亮区域" : $"[{preferences.TriggerLabel}] 输入高亮数字  [{preferences.StickClickLabel}] 输入 0", new(20, 420, 335, 25), Muted, true);
+        Hint(g, session.Mode == InputMode.T9 ? $"[{preferences.DetailStickLabel}] 选字母 · 回中选整组  [{preferences.TriggerLabel}] 输入" : $"[{preferences.TriggerLabel}] 输入高亮数字  [{preferences.StickClickLabel}] 输入 0", new(20, 420, 335, 25), Muted, true);
         if (session.Mode == InputMode.Numeric)
         {
             TextAt(g, "数字输入", titleFont, Color.White, new(366, 96, 360, 28));
             TextAt(g, "最近输入", smallFont, Muted, new(366, 150, 360, 24));
             TextAt(g, session.NumberHistory.Length == 0 ? "—" : session.NumberHistory, gridFont, Accent, new(366, 186, 394, 90));
+            Hint(g, "[A] 无待选内容时输入空格", new(366, 252, 394, 30));
             Hint(g, $"[{preferences.StickClickLabel}] 输入 0", new(366, 294, 394, 30));
             Hint(g, "[X] 退格", new(366, 332, 394, 30));
             Hint(g, "[Y] 返回九键中文", new(366, 370, 394, 30));
@@ -174,7 +177,7 @@ internal sealed class MainForm : Form
             if (view.Candidates.Length == 0)
             {
                 TextAt(g, "候选词将在这里显示", mainFont, Muted, new(380, 205, 360, 30));
-                Hint(g, "[A] 确认当前候选", new(380, 268, 360, 30));
+                Hint(g, "[A] 无待选内容时输入空格", new(380, 268, 360, 30));
                 Hint(g, "[LB] / [RB] 上下选择", new(380, 309, 360, 30));
                 Hint(g, "[Left] / [Right] 前后翻页", new(380, 350, 360, 30));
             }
@@ -190,12 +193,39 @@ internal sealed class MainForm : Form
         }
         using var line = new Pen(Color.FromArgb(UserSettings.Alpha(preferences.PanelOpacity), 49, 57, 65)); g.DrawLine(line, 20, 454, 760, 454);
         TextAt(g, session.Busy ? "正在输入…" : session.Message, smallFont, Color.WhiteSmoke, new(20, 466, 740, 22));
-        Hint(g, session.ExternalInput ? "[A] 选词  长按 [A] 完成  [X] 退格  [B] 关闭候选  长按 [B] 保留草稿并关闭  [View] + [Menu] 完成" :
-            "[A] 选词   [LB] / [RB] 翻选   [X] 退格   [B] 关闭候选   长按 [B] 关闭输入   [View] + [Menu] 开关", new(20, 491, 740, 26));
+        Hint(g, session.ExternalInput ? "[A] 选词/空格  长按 [A] 完成  [X] 退格  [B] 关闭候选  长按 [B] 保留草稿并关闭  [View] + [Menu] 完成" :
+            "[A] 选词/空格   [LB] / [RB] 翻选   [X] 退格   [B] 关闭候选   长按 [B] 关闭输入   [View] + [Menu] 开关", new(20, 491, 740, 26));
         using var border = new Pen(Color.FromArgb(UserSettings.Alpha(preferences.PanelOpacity), 70, 85, 96)); g.DrawRectangle(border, 0, 0, DesignWidth - 1, DesignHeight - 1);
     }
     private void Hint(Graphics g, string text, RectangleF bounds, Color? color = null, bool center = false)
         => glyphs.Draw(g, text, Family, smallFont, color ?? Muted, bounds, 24, center);
+    private void DrawDetails(Graphics g, RectangleF cell, Color gridColor, Color highlight)
+    {
+        Fill(g, cell, gridColor);
+        void Part(int index, RectangleF rect, bool selected)
+        {
+            Fill(g, rect, selected ? highlight : gridColor);
+            TextAt(g, T9Layout.Label(region, index), gridFont, selected ? Background : Color.White, rect, true);
+        }
+        var half = cell.Width / 2;
+        if (region == 0)
+        {
+            Part(0, new(cell.X + 2, cell.Y + 2, cell.Width - 4, half - 3), detail is 0 or 3);
+            Part(2, new(cell.X + 2, cell.Y + half + 1, half - 3, half - 3), detail == 2);
+            Part(1, new(cell.X + half + 1, cell.Y + half + 1, half - 3, half - 3), detail == 1);
+        }
+        else
+        {
+            for (var index = 0; index < 4; index++)
+            {
+                var x = index is 0 or 1 ? half + 1 : 2;
+                var y = index is 1 or 2 ? half + 1 : 2;
+                Part(index, new(cell.X + x, cell.Y + y, half - 3, half - 3), detail == index);
+            }
+        }
+        using var outline = new Pen(highlight, 2);
+        g.DrawRectangle(outline, cell.X + 1, cell.Y + 1, cell.Width - 2, cell.Height - 2);
+    }
     private static RectangleF Cell(int i) => new(20 + i % 3 * 108, 96 + i / 3 * 108, 100, 100);
     private static RectangleF CandidateRect(int i) => new(366, 181 + i * 29, 394, 28);
     private static void Fill(Graphics g, RectangleF rect, Color color)
@@ -221,7 +251,12 @@ internal sealed class MainForm : Form
         if (modeRect.Contains(point)) { await session.Handle(new(PadAction.SwitchMode)); return; }
         if (point.Y < 82) { dragging = true; dragOrigin = Cursor.Position; windowOrigin = Location; Capture = true; return; }
         for (var i = 0; i < 9; i++)
-            if (Cell(i).Contains(point)) { await session.Handle(new(PadAction.Region, i)); return; }
+            if (Cell(i).Contains(point))
+            {
+                var cell = Cell(i);
+                var picked = i == region && HighlightedDetail >= 0 ? T9Layout.Quadrant(point.X >= cell.X + 50, point.Y < cell.Y + 50) : -1;
+                await session.Handle(new(PadAction.Region, i, Detail: picked)); return;
+            }
         if (session.Mode == InputMode.T9)
             for (var i = 0; i < Math.Min(session.View.Candidates.Length, 9); i++)
                 if (CandidateRect(i).Contains(point)) { await session.Handle(new(PadAction.Confirm), i); return; }

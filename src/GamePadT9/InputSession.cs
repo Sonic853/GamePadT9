@@ -137,7 +137,19 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
         {
             var target = TsfClient.FindTarget();
             if (target == null) { Message = "请选择小白 T9 或 GamePad T9；键盘组词请先完成或取消"; return; }
+            // Decide before clearing a composition on a target change: an A
+            // intended to select that old candidate must not become a space.
+            var insertSpace = action.Action == PadAction.Confirm && candidateIndex == null && !symbols.Visible &&
+                engine.View.Preedit.Length == 0 && engine.View.Candidates.Length == 0;
             if (boundTarget != null && boundTarget != target) ClearComposition();
+            if (insertSpace)
+            {
+                Busy = true; Changed?.Invoke();
+                var error = await tsf.Commit(target.Value, " ");
+                if (error == null) { boundTarget = null; Message = "已输入空格"; }
+                else { submissionUnconfirmed = true; Message = error; }
+                return;
+            }
             if (Mode == InputMode.Numeric && action.Action == PadAction.Region)
             {
                 var digit = action.StickClick ? 0 : action.Region + 1;
@@ -165,10 +177,10 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
                     case PadAction.Region: symbols.Close(); break;
                 }
             }
-            if (Mode == InputMode.T9 && action.Action == PadAction.Region && action.Region == 0 && engine.View.Preedit.Length == 0)
+            if (Mode == InputMode.T9 && action.Action == PadAction.Region && action.Region == 0 && T9Layout.Key(action) == 0 && engine.View.Preedit.Length == 0)
             { boundTarget = target; symbols.Open(); Message = "请选择标点符号"; return; }
             if (Mode == InputMode.T9 && action.Action == PadAction.Region)
-            { boundTarget = target; engine.InputRegion(action.Region); }
+            { boundTarget = target; engine.Input(action); }
             else if (action.Action == PadAction.Backspace)
             {
                 if (Mode == InputMode.T9 && engine.View.Preedit.Length > 0) engine.Process(0xFF08);

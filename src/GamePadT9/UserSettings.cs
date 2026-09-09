@@ -20,6 +20,7 @@ internal sealed record UserSettings
     public int PanelBlur { get; init; }
     [JsonIgnore] internal string StickLabel => Stick == ControlSide.Left ? "左摇杆" : "右摇杆";
     [JsonIgnore] internal string StickClickLabel => Stick == ControlSide.Left ? "L3" : "R3";
+    [JsonIgnore] internal string DetailStickLabel => Stick == ControlSide.Left ? "RS" : "LS";
     [JsonIgnore] internal string TriggerLabel => Trigger == ControlSide.Left ? "LT" : "RT";
     internal static int Alpha(int percentage) => (percentage * 255 + 50) / 100;
     internal void Validate()
