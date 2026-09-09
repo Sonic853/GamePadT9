@@ -74,6 +74,7 @@ internal static class ControllerValidation
                 using (var picture = overlay.CreateSnapshot()) picture.Save(Path.Combine(root, "artifacts", $"controller-{family}-t9.png"));
                 // Mode changes require an enabled session, but no target is accessed for this rendering test.
                 session.Enable(true).GetAwaiter().GetResult(); session.Handle(new(PadAction.SwitchMode)).GetAwaiter().GetResult();
+                session.Handle(new(PadAction.SwitchMode)).GetAwaiter().GetResult();
                 using (var picture = overlay.CreateSnapshot()) picture.Save(Path.Combine(root, "artifacts", $"controller-{family}-numeric.png"));
                 session.Enable(false).GetAwaiter().GetResult();
             }

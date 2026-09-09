@@ -13,6 +13,7 @@ internal sealed record UserSettings
     public GamepadFamily ControllerFamily { get; init; } = GamepadFamily.Xbox;
     public ControlSide Stick { get; init; } = ControlSide.Right;
     public ControlSide Trigger { get; init; } = ControlSide.Right;
+    public ControlSide EnglishCaseShoulder { get; init; } = ControlSide.Right;
     public int PanelOpacity { get; init; } = 50;
     public int GridOpacity { get; init; } = 80;
     public int HighlightOpacity { get; init; } = 90;
@@ -22,14 +23,15 @@ internal sealed record UserSettings
     [JsonIgnore] internal string StickClickLabel => Stick == ControlSide.Left ? "L3" : "R3";
     [JsonIgnore] internal string DetailStickLabel => Stick == ControlSide.Left ? "RS" : "LS";
     [JsonIgnore] internal string TriggerLabel => Trigger == ControlSide.Left ? "LT" : "RT";
+    [JsonIgnore] internal string EnglishCaseLabel => EnglishCaseShoulder == ControlSide.Left ? "LB" : "RB";
     internal static int Alpha(int percentage) => (percentage * 255 + 50) / 100;
     internal void Validate()
     {
-        if (!Enum.IsDefined(Stick) || !Enum.IsDefined(Trigger) || !Enum.IsDefined(ControllerFamily) ||
+        if (!Enum.IsDefined(Stick) || !Enum.IsDefined(Trigger) || !Enum.IsDefined(EnglishCaseShoulder) || !Enum.IsDefined(ControllerFamily) ||
             (ControllerId != null && string.IsNullOrWhiteSpace(ControllerId)) ||
             PanelOpacity is < 0 or > 100 || GridOpacity is < 0 or > 100 || HighlightOpacity is < 0 or > 100 ||
             PanelBlur is < 0 or > 100)
-            throw new InvalidDataException("摇杆、扳机或外观设置无效。可见度和背景模糊程度范围为 0–100%。");
+            throw new InvalidDataException("摇杆、扳机、肩键或外观设置无效。可见度和背景模糊程度范围为 0–100%。");
     }
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
     internal static UserSettings Load(string root, out string? warning)

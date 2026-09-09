@@ -10,10 +10,12 @@ internal sealed class SymbolMenu
     ];
     public bool Visible { get; private set; }
     private int index;
-    public EngineView View => new("常用符号", index / 9, index / 9 == 2, index % 9, Symbols.Skip(index / 9 * 9).Take(9).ToArray());
-    public void Open() { index = 0; Visible = true; }
+    private static readonly Candidate[] EnglishSymbols = [.. Symbols.Skip(18), .. Symbols.Take(18)];
+    private Candidate[] items = Symbols;
+    public EngineView View => new("常用符号", index / 9, index / 9 == 2, index % 9, items.Skip(index / 9 * 9).Take(9).ToArray());
+    public void Open(bool english = false) { items = english ? EnglishSymbols : Symbols; index = 0; Visible = true; }
     public void Close() => Visible = false;
     public void Move(int offset) => index = Math.Clamp(index + offset, 0, Symbols.Length - 1);
     public void Page(int offset) => index = Math.Clamp(index / 9 + offset, 0, 2) * 9;
-    public string Select(int? pageIndex) => pageIndex is int i && (uint)i < 9 ? Symbols[index / 9 * 9 + i].Text : Symbols[index].Text;
+    public string Select(int? pageIndex) => pageIndex is int i && (uint)i < 9 ? items[index / 9 * 9 + i].Text : items[index].Text;
 }

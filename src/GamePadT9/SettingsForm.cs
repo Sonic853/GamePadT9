@@ -27,6 +27,7 @@ internal sealed partial class SettingsForm : PanelWindow
     {
         ControllerId = Selection.Id, ControllerName = Selection.Id == null ? null : Selection.Name.Replace("（未连接）", ""), ControllerFamily = Selection.Id == null ? GamepadFamily.Xbox : Selection.Family,
         Stick = (ControlSide)StickSelector.SelectedIndex, Trigger = (ControlSide)TriggerSelector.SelectedIndex,
+        EnglishCaseShoulder = (ControlSide)EnglishCaseSelector.SelectedIndex,
         PanelOpacity = Percent(OpacityValue0), GridOpacity = Percent(OpacityValue1), HighlightOpacity = Percent(OpacityValue2),
         PanelBlur = Percent(BlurValue)
     };
@@ -36,6 +37,7 @@ internal sealed partial class SettingsForm : PanelWindow
         InitializeComponent();
         foreach (var (token, text) in new[] { ("LS", "左摇杆"), ("RS", "右摇杆") }) StickSelector.Items.Add(BindingChoice(token, text));
         foreach (var (token, text) in new[] { ("LT", "左扳机"), ("RT", "右扳机") }) TriggerSelector.Items.Add(BindingChoice(token, text));
+        foreach (var (token, text) in new[] { ("LB", "左肩键"), ("RB", "右肩键") }) EnglishCaseSelector.Items.Add(BindingChoice(token, text));
         ActivationKeys.Children.Add(CreateGlyph("View")); ActivationKeys.Children.Add(new TextBlock { Text = "+", VerticalAlignment = VerticalAlignment.Center, Margin = new(8, 0, 8, 0) }); ActivationKeys.Children.Add(CreateGlyph("Menu"));
         var sliders = new[] { OpacitySlider0, OpacitySlider1, OpacitySlider2, BlurSlider };
         var numbers = new[] { OpacityValue0, OpacityValue1, OpacityValue2, BlurValue };
@@ -55,6 +57,7 @@ internal sealed partial class SettingsForm : PanelWindow
             };
         }
         StickSelector.SelectionChanged += (_, _) => Preview(); TriggerSelector.SelectionChanged += (_, _) => Preview();
+        EnglishCaseSelector.SelectionChanged += (_, _) => Preview();
         ControllerSelector.SelectionChanged += (_, _) => { Preview(); UpdateDeviceStatus(); };
         SetDraft(settings); RefreshComponents(); ShowPage(0);
         Closing += (_, e) => { if (operating) e.Cancel = true; };
@@ -75,6 +78,7 @@ internal sealed partial class SettingsForm : PanelWindow
         {
             RebuildDevices(value.ControllerId, value.ControllerName, value.ControllerFamily);
             StickSelector.SelectedIndex = (int)value.Stick; TriggerSelector.SelectedIndex = (int)value.Trigger;
+            EnglishCaseSelector.SelectedIndex = (int)value.EnglishCaseShoulder;
             OpacityValue0.Value = OpacitySlider0.Value = value.PanelOpacity;
             OpacityValue1.Value = OpacitySlider1.Value = value.GridOpacity;
             OpacityValue2.Value = OpacitySlider2.Value = value.HighlightOpacity;
@@ -85,7 +89,7 @@ internal sealed partial class SettingsForm : PanelWindow
     }
     private void Preview()
     {
-        if (updating || StickSelector.SelectedIndex < 0 || TriggerSelector.SelectedIndex < 0) return;
+        if (updating || StickSelector.SelectedIndex < 0 || TriggerSelector.SelectedIndex < 0 || EnglishCaseSelector.SelectedIndex < 0) return;
         try { VisibilityPreview.Settings = Draft; } catch (InvalidDataException) { }
         foreach (var icon in icons) icon.Family = Family;
     }

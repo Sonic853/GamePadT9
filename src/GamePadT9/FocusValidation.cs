@@ -119,6 +119,11 @@ internal sealed class FocusValidation : Form
         foreach (var region in new[] { 5, 3, 3, 1, 5 }) await active!.Handle(new(PadAction.Region, region));
         Check(active!.View.Candidates.Length > 0 && Validation.Find(engine, "你好"), "Production Rime composition retains candidates while target is unfocused");
     }
+    private async Task SetMode(InputMode mode)
+    {
+        for (var i = 0; i < 3 && active!.Mode != mode; i++) await active.Handle(new(PadAction.SwitchMode));
+        if (active!.Mode != mode) throw new Exception("Could not switch to " + mode);
+    }
     private void Snapshot(string name, Form form)
     {
         using var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
@@ -155,7 +160,7 @@ internal sealed class FocusValidation : Form
         window.UseFamily(GamepadFamily.Xbox); window.PlaceAbove(overlay.Bounds);
 
         window.Editor.Text = "甲乙丙"; window.Editor.Select(1, 1);
-        await active.Handle(new(PadAction.SwitchMode));
+        await SetMode(active.Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9);
         await active.Handle(new(PadAction.Region, 0)); await active.Handle(new(PadAction.Region, 1));
         Check(window.Editor.Text == "甲12丙" && window.Editor.SelectionStart == 3 && window.Editor.SelectionLength == 0,
             "WPF gamepad commits replace the selection once and then insert at the advancing caret");
@@ -177,12 +182,13 @@ internal sealed class FocusValidation : Form
         window.Click("ClearButton");
         Check(window.Editor.Text == "" && active.Focused.Draft == "" && window.Editor.IsKeyboardFocused,
             "The Fluent clear action clears the draft and returns the caret to the editor");
-        await active.Handle(new(PadAction.SwitchMode));
+        await SetMode(active.Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9);
     }
     [StructLayout(LayoutKind.Sequential)] private struct WindowBounds { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll")] private static extern bool GetWindowRect(nint window, out WindowBounds bounds);
     private async Task Run()
     {
+        await VerifyEnglish();
         await VerifySpaces();
         await VerifyMixedInput();
         await VerifyProfiles(); VerifyController();
@@ -195,7 +201,7 @@ internal sealed class FocusValidation : Form
         await VerifyExternalWindow();
         await Nihao(); await active!.Handle(new(PadAction.Confirm));
         Check(active.Focused!.Draft == "你好" && Read(field) == "", "External candidate confirmation edits only the local textbox");
-        await active.Handle(new(PadAction.SwitchMode));
+        await SetMode(active.Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9);
         await active.Handle(new(PadAction.Region, 0)); await active.Handle(new(PadAction.Region, 4, true));
         Check(active.Focused.Draft == "你好10" && NumericInput.SentKeyEvents == inputEvents, "External numeric mode edits locally without OS keyboard events");
         active.Focused.Form.Editor.SelectedText = "😀"; await active.Handle(new(PadAction.Backspace));
@@ -290,7 +296,7 @@ internal sealed class FocusValidation : Form
         Check(!relay.IsCompleted && Read(field) == "你好", "Defocus confirmation waits for the confirm button to be released");
         heldState.Buttons = 0; await relay.WaitAsync(TimeSpan.FromSeconds(4));
         Check(active.Enabled && active.Focused!.OwnsFocus && Read(field) == "你好你好", "Defocus mode fills the candidate with the right stick still tilted, then returns focus to the panel");
-        await active.Handle(new(PadAction.SwitchMode));
+        await SetMode(active.Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9);
         heldState = new() { LX = -22000, LY = 22000, RX = 22000, RY = 22000, RT = 200 };
         var number = active.Handle(new(PadAction.Region, 2)); await Task.Delay(120);
         Check(!number.IsCompleted && Read(field) == "你好你好", "Defocus numeric input still waits for trigger release");
@@ -339,6 +345,161 @@ internal sealed class FocusValidation : Form
         await active.Handle(new(PadAction.Toggle));
         Check(active.Enabled && active.Focused.Draft == "窗口已关闭", "Destroyed target never receives text and draft remains available");
     }
+    private async Task VerifyEnglish()
+    {
+        var field = await Launch();
+        foreach (var behavior in new[] { InputFocusMode.None, InputFocusMode.Defocus, InputFocusMode.External })
+        {
+            await Focus(field); ((ValuePattern)field.GetCurrentPattern(ValuePattern.Pattern)).SetValue("");
+            await Begin(new() { Mode = behavior, Completion = CompletionDestination.Target });
+            var beforeEvents = NumericInput.SentKeyEvents;
+            var pad = new Controller(active!.English);
+            void Sync()
+            {
+                pad.ConfigureCompletion(active.Enabled && active.ExternalInput);
+                pad.ConfigureEnglish(active.Enabled && active.Mode == InputMode.English);
+                overlay!.Present(pad.Region, 1, pad.Detail);
+            }
+            active.Changed += Sync; Sync(); pad.Update(default, 0);
+            long time = 10;
+            string Current() => behavior == InputFocusMode.External ? active.Focused!.Draft : Read(field);
+            async Task Sample(Gamepad state)
+            {
+                heldState = state;
+                foreach (var action in pad.Update(state, time++))
+                {
+                    var task = active.Handle(action);
+                    if (!task.IsCompleted)
+                    {
+                        // Like the host, keep polling button release while a
+                        // defocus relay awaits it, without centering the sticks.
+                        await Task.Delay(70);
+                        heldState.Buttons = 0; heldState.LT = heldState.RT = 0;
+                        pad.Update(heldState, time++);
+                    }
+                    await task.WaitAsync(TimeSpan.FromSeconds(6));
+                }
+                overlay!.Present(pad.Region, 1, pad.Detail);
+            }
+            async Task Press(Gamepad state, Buttons button = 0)
+            {
+                await Sample(state);
+                var pressed = state;
+                if (button == 0) pressed.RT = 200; else pressed.Buttons = button;
+                await Sample(pressed); await Sample(state);
+            }
+            try
+            {
+                await Press(default, Buttons.Y); Check(active.Mode == InputMode.English, behavior + ": Y cycles from Chinese to English");
+                await Press(default, Buttons.Y); Check(active.Mode == InputMode.Numeric, behavior + ": Y cycles from English to numeric");
+                await Press(default, Buttons.Y); Check(active.Mode == InputMode.T9, behavior + ": Y cycles back to Chinese");
+                await Press(default, Buttons.Y);
+                await active.Handle(new(PadAction.Region, 5));
+                await Press(default, Buttons.RB);
+                Check(active.English.Uppercase && active.English.Group == 5, behavior + ": the default right shoulder switches to uppercase without leaving the group");
+                await active.Handle(new(PadAction.Region, 5, Detail: 1));
+                Check(Current() == "N", behavior + ": uppercase reaches the text target without prediction");
+                await Sample(new() { Buttons = Buttons.RB }); time += 600;
+                await Sample(new() { Buttons = Buttons.RB }); time += 600;
+                await Sample(new() { Buttons = Buttons.RB }); await Sample(default);
+                Check(!active.English.Uppercase, behavior + ": holding the right shoulder changes case once rather than on repeats");
+                await Press(default, Buttons.LB);
+                Check(!active.English.Uppercase, behavior + ": the unassigned left shoulder does not change English case");
+                await Press(default, Buttons.RB);
+                Check(active.English.Uppercase, behavior + ": the next right-shoulder click changes case again");
+                if (behavior == InputFocusMode.External)
+                { using var bitmap = overlay!.CreateSnapshot(); bitmap.Save(Path.Combine(root, "artifacts", "english-uppercase.png")); }
+                await Press(default, Buttons.B);
+                await Press(new() { RX = -22000, RY = 22000 });
+                await Press(default, Buttons.RB);
+                await Sample(new() { Buttons = Buttons.RB }); time += 600;
+                await Sample(new() { Buttons = Buttons.RB }); await Sample(default);
+                await Press(default, Buttons.LB);
+                Check(active.View.Highlight == 2 && active.English.Uppercase,
+                    behavior + ": both shoulders navigate symbols, including held repeats, without changing case");
+                await Press(default, Buttons.A);
+                await active.Handle(new(PadAction.Next, IsRepeat: true));
+                Check(Current() == "N?" && active.English.Uppercase, behavior + ": closing symbols does not turn a held shoulder repeat into a case toggle");
+                var oldPreferences = active.Preferences;
+                active.Preferences = oldPreferences with { EnglishCaseShoulder = ControlSide.Left };
+                await Press(default, Buttons.LB);
+                Check(!active.English.Uppercase, behavior + ": assigning the left shoulder moves case switching to LB");
+                await Press(default, Buttons.RB);
+                Check(!active.English.Uppercase, behavior + ": RB stops switching case after assigning LB");
+                await Press(default, Buttons.LB);
+                await active.Handle(new(PadAction.Region, 1, Detail: 0));
+                await Press(new() { RX = -22000, RY = 22000 });
+                await Press(default, Buttons.RB); await Press(default, Buttons.LB);
+                Check(active.View.Highlight == 0 && active.English.Uppercase,
+                    behavior + ": the left-shoulder preference does not override symbol navigation");
+                await Press(default, Buttons.A);
+                Check(Current() == "N?A.", behavior + ": uppercase setting leaves ASCII punctuation unchanged");
+                await SetMode(InputMode.Numeric); await Press(default, Buttons.LB);
+                await SetMode(InputMode.T9); await Press(default, Buttons.RB);
+                await SetMode(InputMode.English);
+                Check(active.English.Uppercase, behavior + ": other modes neither toggle nor discard the chosen English case");
+                await Press(default, Buttons.LB); active.Preferences = oldPreferences;
+                for (var i = 0; i < 4; i++) await active.Handle(new(PadAction.Backspace));
+                Check(Current() == "" && !active.English.Uppercase, behavior + ": lowercase is restored for normal English input");
+                await Press(new() { RY = 22000 });
+                Check(active.English.Group == 1 && Current() == "", behavior + ": selecting ABC opens four cells without inserting anything");
+                await Sample(default);
+                Check(overlay!.DetailsExpanded && overlay.HighlightedDetail == -1 && overlay.HighlightedRegion == 1,
+                    behavior + ": centered English group remains expanded with no highlighted letter");
+                if (behavior == InputFocusMode.External)
+                { using var bitmap = overlay.CreateSnapshot(); bitmap.Save(Path.Combine(root, "artifacts", "english-centered.png")); }
+                await Press(default);
+                Check(active.English.Group == null && !overlay.DetailsExpanded && Current() == "", behavior + ": centered trigger returns to the nine-grid");
+                await Press(new() { RY = 22000 }, Buttons.R3);
+                await Press(new() { RX = 22000, RY = 22000 });
+                Check(Current() == "a" && active.English.Group == 1, behavior + ": right stick inputs a literal and retains the selected group");
+                await Press(new() { RX = 22000, RY = 22000, LX = 22000, LY = -22000 }, Buttons.R3);
+                Check(Current() == "ab", behavior + ": left-stick B wins over right-stick A on a stick click");
+                await Press(new() { RX = 22000, RY = 22000, LX = -22000, LY = 22000 });
+                Check(Current() == "ab" && overlay.HighlightedDetail == 3, behavior + ": highlighted blank is a no-op even with a valid right-stick letter");
+                if (behavior == InputFocusMode.External)
+                { using var bitmap = overlay.CreateSnapshot(); bitmap.Save(Path.Combine(root, "artifacts", "english-blank.png")); }
+                await Press(new() { RX = -22000, RY = 22000 });
+                Check(Current() == "ab", behavior + ": a right-stick blank also inserts nothing");
+                await Press(default, Buttons.B);
+                Check(active.English.Group == null && active.Enabled && Current() == "ab", behavior + ": B leaves the four-cell view without closing input");
+                await Press(new() { LX = -22000, LY = -22000 });
+                Check(Current() == "abl" && active.English.Group == null, behavior + ": two-stick English directly inputs the selected letter without latching");
+                await Press(default, Buttons.A); Check(Current() == "abl ", behavior + ": English A inserts one ASCII space");
+                await active.Handle(new(PadAction.Backspace)); Check(Current() == "abl", behavior + ": English X deletes the preceding character");
+                await Press(new() { RX = -22000, RY = 22000 }, Buttons.R3);
+                Check(active.English.Group == null && active.View.Candidates[0].Text == "." && active.View.Candidates.Length == 9,
+                    behavior + ": symbol click opens English-first common symbols immediately");
+                await Press(default, Buttons.RB); await Press(default, Buttons.A);
+                Check(Current() == "abl," && active.View.Candidates.Length == 0, behavior + ": English punctuation uses candidate navigation and literal submission");
+                await Press(new() { RX = -22000, RY = 22000, LX = 22000, LY = -22000 });
+                Check(Current() == "abl,.", behavior + ": symbol detail inserts an ASCII period directly");
+                // The mouse route shares the same group state and letter resolver.
+                await active.Handle(new(PadAction.Region, 6));
+                await active.Handle(new(PadAction.Region, 6, Detail: 3));
+                Check(Current() == "abl,.s" && active.English.Group == 6 && engine.View.Preedit.Length == 0 && engine.PendingCommit.Length == 0 && active.View.Candidates.Length == 0,
+                    behavior + ": clicking a group then its letter types lowercase text without invoking Rime completion");
+                await active.Handle(new(PadAction.Cancel));
+                await SetMode(InputMode.T9); await Nihao(); var preedit = engine.View.Preedit;
+                await SetMode(InputMode.English);
+                await active.Handle(new(PadAction.Region, 1, Detail: 0)); await Press(default, Buttons.A);
+                Check(Current() == "abl,.sa " && engine.View.Preedit == preedit && active.View.Candidates.Length == 0,
+                    behavior + ": English letters and spaces preserve hidden Chinese composition");
+                await active.Handle(new(PadAction.Region, 1)); await Press(default, Buttons.B);
+                Check(engine.View.Preedit == preedit, behavior + ": leaving the English group with B does not discard hidden Chinese candidates");
+                await SetMode(InputMode.T9); await active.Handle(new(PadAction.Confirm));
+                Check(Current() == "abl,.sa 你好", behavior + ": switching back restores and commits the original Chinese candidate");
+                await SetMode(InputMode.English); heldState = default;
+                if (behavior == InputFocusMode.External) await Press(default, Buttons.View | Buttons.Menu);
+                else await active.Enable(false);
+                Check(!active.Enabled && Read(field) == "abl,.sa 你好" && NumericInput.SentKeyEvents == beforeEvents,
+                    behavior + ": English completion reaches the target exactly once without simulated number keys");
+            }
+            finally { heldState = default; active.Changed -= Sync; await active.ShutdownAsync(); }
+        }
+        var process = editors.Single(p => p.Id == field.Current.ProcessId);
+        process.CloseMainWindow(); await process.WaitForExitAsync();
+    }
     private async Task VerifySpaces()
     {
         var field = await Launch();
@@ -358,13 +519,13 @@ internal sealed class FocusValidation : Form
                 foreach (var action in actions) await active!.Handle(action);
             }
             await ShortA(); Check(Current() == " ", behavior + ": empty T9 input inserts one ASCII space");
-            await active!.Handle(new(PadAction.SwitchMode)); await ShortA();
+            await SetMode(active!.Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9); await ShortA();
             Check(Current() == "  ", behavior + ": empty numeric input also inserts one space");
-            await active.Handle(new(PadAction.SwitchMode)); await Nihao();
+            await SetMode(active.Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9); await Nihao();
             var preedit = engine.View.Preedit;
-            await active.Handle(new(PadAction.SwitchMode)); await ShortA();
+            await SetMode(active.Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9); await ShortA();
             Check(Current() == "  " && engine.View.Preedit == preedit, behavior + ": hidden T9 composition in numeric mode prevents an accidental space");
-            await active.Handle(new(PadAction.SwitchMode)); await ShortA();
+            await SetMode(active.Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9); await ShortA();
             Check(Current() == "  你好", behavior + ": candidate selection never adds a trailing space");
             await active.Handle(new(PadAction.Region, 0)); await ShortA();
             Check(Current() == "  你好，", behavior + ": the symbol menu retains priority over inserting a space");
@@ -407,9 +568,9 @@ internal sealed class FocusValidation : Form
                     Check(overlay.HighlightedDetail == detail, "Visible detail selection survives candidate updates: " + name);
                 }
                 overlay!.Present(1, 1, -1); Check(overlay.HighlightedDetail == -1, "Centering restores the whole group view");
-                await active!.Handle(new(PadAction.SwitchMode)); overlay.Present(1, 1, 3);
+                await SetMode(active!.Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9); overlay.Present(1, 1, 3);
                 Check(overlay.HighlightedDetail == -1, "Numeric mode always displays whole digit cells");
-                await active.Handle(new(PadAction.SwitchMode));
+                await SetMode(active.Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9);
             }
             await active!.Handle(new(PadAction.Region, 0, Detail: 2));
             await active.Handle(new(PadAction.Region, 0, Detail: 1));

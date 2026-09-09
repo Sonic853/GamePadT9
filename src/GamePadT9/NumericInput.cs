@@ -3,7 +3,15 @@ using System.Runtime.InteropServices;
 
 namespace GamePadT9;
 
-internal enum InputMode { T9, Numeric }
+internal enum InputMode { T9, English, Numeric }
+
+internal static class InputModes
+{
+    internal static InputMode Next(this InputMode mode) => mode switch
+    { InputMode.T9 => InputMode.English, InputMode.English => InputMode.Numeric, _ => InputMode.T9 };
+    internal static string Name(this InputMode mode) => mode switch
+    { InputMode.T9 => "九键拼音", InputMode.English => "英文输入", _ => "数字输入" };
+}
 
 // The numeric keyboard-injection boundary. It permits NumPad 0..9
 // exclusively, and requires both Numeric mode and the same foreground window.
@@ -12,7 +20,7 @@ internal static class NumericInput
     internal static uint SentKeyEvents { get; private set; }
     internal static void SendDigit(InputMode mode, int digit, nint foreground)
     {
-        if (mode != InputMode.Numeric) throw new InvalidOperationException("九键模式不能发送模拟数字按键。");
+        if (mode != InputMode.Numeric) throw new InvalidOperationException("只有数字模式可以发送模拟数字按键。");
         if ((uint)digit > 9) throw new ArgumentOutOfRangeException(nameof(digit));
         if (foreground == 0 || TsfClient.GetForegroundWindow() != foreground)
             throw new InvalidOperationException("输入焦点已变化，数字未发送。");

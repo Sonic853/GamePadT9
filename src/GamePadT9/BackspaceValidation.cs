@@ -56,7 +56,8 @@ internal sealed class BackspaceValidation : Form
             Check(rejected != null && BackspaceInput.SentKeyEvents == 2 && Read() == "甲乙AB", "Stale focus refuses Backspace without deleting text or sending keys");
             await session.Handle(new(PadAction.Backspace)); await Expect("甲乙A");
             Check(BackspaceInput.SentKeyEvents == 4, "A second X deletes one character without a duplicate TSF deletion");
-            await session.Handle(new(PadAction.SwitchMode)); await session.Handle(new(PadAction.Backspace)); await Expect("甲乙");
+            await session.Handle(new(PadAction.SwitchMode)); await session.Handle(new(PadAction.SwitchMode));
+            await session.Handle(new(PadAction.Backspace)); await Expect("甲乙");
             Check(BackspaceInput.SentKeyEvents == 6 && NumericInput.SentKeyEvents == 0, "Numeric mode also uses the same Backspace compatibility fallback");
             Result = 0;
         }

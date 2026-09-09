@@ -113,6 +113,7 @@ internal static class Validation
     {
         var checks = new List<string>();
         void Check(bool condition, string name) { if (!condition) throw new Exception("FAILED: " + name); checks.Add(name); }
+        EnglishValidation.Run(Check);
         var pad = new Controller();
         Check(pad.Update(new Gamepad { RT = 255, Buttons = Buttons.A }, 0).Count == 0, "Connecting with held buttons does not type");
         pad.Update(default, 10);

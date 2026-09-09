@@ -70,6 +70,9 @@ internal sealed class SettingsValidation : Form
                     "WPF settings content and footer are rendered and laid out");
                 Check(form.Control<System.Windows.Controls.ComboBox>("StickSelector").SelectedIndex == 1 &&
                     form.Control<System.Windows.Controls.ComboBox>("TriggerSelector").SelectedIndex == 1, "Settings controls display the current left/right selection");
+                var caseSelector = form.Control<System.Windows.Controls.ComboBox>("EnglishCaseSelector");
+                Check(caseSelector.SelectedIndex == 1 && caseSelector.Items.Count == 2 && caseSelector.ActualHeight >= 40,
+                    "English case switching defaults to the right shoulder in a visible two-choice dropdown");
                 var keyboardSelector = form.Control<System.Windows.Controls.ComboBox>("StickSelector");
                 form.Activate(); keyboardSelector.Focus(); await Task.Delay(80);
                 Check(GetForegroundWindow() == form.Handle && keyboardSelector.IsKeyboardFocusWithin, "Modeless WPF controls acquire keyboard focus from the tray host");
@@ -79,6 +82,7 @@ internal sealed class SettingsValidation : Form
                 PanelSnapshot.Save(form, Path.Combine(root, "artifacts", "settings-window.png"));
                 form.Control<System.Windows.Controls.ComboBox>("StickSelector").SelectedIndex = 0;
                 form.Control<System.Windows.Controls.ComboBox>("TriggerSelector").SelectedIndex = 1;
+                caseSelector.SelectedIndex = 0;
                 form.ShowPage(1); await Task.Delay(150);
                 form.Control<Wpf.Ui.Controls.NumberBox>("OpacityValue0").Value = 20;
                 form.Control<System.Windows.Controls.Slider>("OpacitySlider1").Value = 65;
@@ -94,10 +98,11 @@ internal sealed class SettingsValidation : Form
                 form.Click("SaveSettings");
             }
             var persisted = UserSettings.Load(directory, out warning);
-            Check(saved && warning == null && persisted == new UserSettings { Stick = ControlSide.Left, Trigger = ControlSide.Right, PanelOpacity = 20, GridOpacity = 65, HighlightOpacity = 95, PanelBlur = 70 },
+            Check(saved && warning == null && persisted == new UserSettings { Stick = ControlSide.Left, Trigger = ControlSide.Right, EnglishCaseShoulder = ControlSide.Left, PanelOpacity = 20, GridOpacity = 65, HighlightOpacity = 95, PanelBlur = 70 },
                 "Saving real settings controls persists bindings, visibility and shared blur across reloads");
             using (var cancel = new SettingsForm(persisted, _ => throw new Exception("Cancel unexpectedly saved")))
             {
+                Check(cancel.Control<System.Windows.Controls.ComboBox>("EnglishCaseSelector").SelectedIndex == 0, "Reopening settings restores the saved left shoulder");
                 cancel.Show(); cancel.Click("ResetDefaults");
                 Check(cancel.Draft == defaults, "Restore defaults resets the complete settings draft");
                 cancel.Activate(); await Task.Delay(80);
@@ -115,6 +120,8 @@ internal sealed class SettingsValidation : Form
             }
             File.WriteAllText(Path.Combine(directory, "user-settings.json"), "{\"GridOpacity\":150}");
             Check(UserSettings.Load(directory, out warning) == defaults && warning != null, "Invalid settings fall back without preventing startup");
+            File.WriteAllText(Path.Combine(directory, "user-settings.json"), "{\"EnglishCaseShoulder\":2}");
+            Check(UserSettings.Load(directory, out warning) == defaults && warning != null, "Invalid case-shoulder bindings fall back to the default right shoulder");
             foreach (var invalid in new[] { "{\"PanelBlur\":-1}", "{\"PanelBlur\":101}" })
             {
                 File.WriteAllText(Path.Combine(directory, "user-settings.json"), invalid);

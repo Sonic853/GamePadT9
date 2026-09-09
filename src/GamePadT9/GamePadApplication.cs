@@ -7,7 +7,7 @@ internal sealed class GamePadApplication : ApplicationContext
 {
     private readonly InputSession session;
     private readonly MainForm overlay;
-    private readonly Controller controller = new();
+    private readonly Controller controller;
     private readonly GamepadDevices devices = new();
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 16 };
     private readonly NotifyIcon tray;
@@ -32,6 +32,7 @@ internal sealed class GamePadApplication : ApplicationContext
         warning ??= profileWarning;
         inputMethods = new(root);
         session = new(engine, inputMethods) { Preferences = preferences }; overlay = new(session);
+        controller = new(session.English);
         session.ControlsReleased = () => !deviceConnected || Controller.IsNeutral(latestState);
         session.ButtonsReleased = () => !deviceConnected || Controller.AreButtonsReleased(latestState);
         session.OverlayBounds = () => overlay.Bounds;
@@ -53,7 +54,7 @@ internal sealed class GamePadApplication : ApplicationContext
         tray = new NotifyIcon { Icon = SystemIcons.Application, Text = "GamePad T9 · 双菜单键开启", ContextMenuStrip = menu, Visible = true };
         tray.DoubleClick += async (_, _) => await ToggleFromTray();
         session.Error += message => tray.ShowBalloonTip(5000, "GamePad T9", message, ToolTipIcon.Warning);
-        session.Changed += () => { controller.ConfigureCompletion(session.Enabled && session.ExternalInput); toggle.Text = session.Enabled ? (session.ExternalInput ? "完成并关闭输入" : "关闭输入") : "开启输入"; overlay.Present(controller.Region, activeInstance, controller.Detail); };
+        session.Changed += () => { controller.ConfigureCompletion(session.Enabled && session.ExternalInput); controller.ConfigureEnglish(session.Enabled && session.Mode == InputMode.English); toggle.Text = session.Enabled ? (session.ExternalInput ? "完成并关闭输入" : "关闭输入") : "开启输入"; overlay.Present(controller.Region, activeInstance, controller.Detail); };
         timer.Tick += Tick;
         timer.Start();
         if (warning != null) tray.ShowBalloonTip(5000, "GamePad T9", warning, ToolTipIcon.Warning);

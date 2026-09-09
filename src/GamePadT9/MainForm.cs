@@ -36,7 +36,8 @@ internal sealed class MainForm : Form
     private long lastRaise;
     internal int DisplayedCandidateCount => session.View.Candidates.Length;
     internal int HighlightedRegion => region;
-    internal int HighlightedDetail => session.Mode == InputMode.T9 ? detail : -1;
+    internal int HighlightedDetail => session.Mode != InputMode.Numeric ? detail : -1;
+    internal bool DetailsExpanded => session.Mode != InputMode.Numeric && (detail >= 0 || session.Mode == InputMode.English && session.English.Group != null);
     internal InputMode DisplayedMode => session.Mode;
     internal string DisplayedPreedit => string.Create(session.View.Preedit.Length, session.View.Preedit, static (output, original) =>
     {
@@ -81,6 +82,7 @@ internal sealed class MainForm : Form
     internal void UseDevice(GamepadDevice? value) { if (device != value) { device = value; dirty = true; } }
     internal void Present(int selectedRegion, uint? controllerSlot, int selectedDetail = -1)
     {
+        if (session.Mode == InputMode.English && session.English.Group is int group) selectedRegion = group;
         var changed = region != selectedRegion || pad != controllerSlot || detail != selectedDetail;
         dirty |= changed;
         region = selectedRegion; pad = controllerSlot; detail = selectedDetail;
@@ -145,17 +147,23 @@ internal sealed class MainForm : Form
         Fill(g, settingsRect, panelColor);
         TextAt(g, "设置", smallFont, Color.White, settingsRect, true);
         Fill(g, modeRect, panelColor);
-        Hint(g, session.Mode == InputMode.T9 ? "[Y] 九键中文" : "[Y] 数字输入", modeRect, Accent, true);
+        Hint(g, "[Y] " + session.Mode.Name(), modeRect, Accent, true);
         TextAt(g, "×", gridFont, Muted, closeRect, true);
-        string[] labels = session.Mode == InputMode.T9 ? T9Layout.Groups : ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+        string[] labels = session.Mode != InputMode.Numeric ? T9Layout.Groups : ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
         for (var i = 0; i < 9; i++)
         {
             var rect = Cell(i); var selected = i == region;
-            if (selected && HighlightedDetail >= 0) { DrawDetails(g, rect, gridColor, highlight); continue; }
+            if (selected && DetailsExpanded) { DrawDetails(g, rect, gridColor, highlight); continue; }
             Fill(g, rect, selected ? highlight : gridColor);
-            TextAt(g, labels[i], gridFont, selected ? Background : Color.White, rect, true);
+            var label = session.Mode == InputMode.English && !session.English.Uppercase ? labels[i].ToLowerInvariant() : labels[i];
+            TextAt(g, label, gridFont, selected ? Background : Color.White, rect, true);
         }
-        Hint(g, session.Mode == InputMode.T9 ? $"[{preferences.DetailStickLabel}] 选字母 · 回中选整组  [{preferences.TriggerLabel}] 输入" : $"[{preferences.TriggerLabel}] 输入高亮数字  [{preferences.StickClickLabel}] 输入 0", new(20, 420, 335, 25), Muted, true);
+        Hint(g, session.Mode switch
+        {
+            InputMode.T9 => $"[{preferences.DetailStickLabel}] 选字母 · 回中选整组  [{preferences.TriggerLabel}] 输入",
+            InputMode.English => $"[{preferences.DetailStickLabel}] 优先选字母  [{preferences.TriggerLabel}] / [{preferences.StickClickLabel}] 确认",
+            _ => $"[{preferences.TriggerLabel}] 输入高亮数字  [{preferences.StickClickLabel}] 输入 0"
+        }, new(20, 420, 335, 25), Muted, true);
         if (session.Mode == InputMode.Numeric)
         {
             TextAt(g, "数字输入", titleFont, Color.White, new(366, 96, 360, 28));
@@ -164,11 +172,21 @@ internal sealed class MainForm : Form
             Hint(g, "[A] 无待选内容时输入空格", new(366, 252, 394, 30));
             Hint(g, $"[{preferences.StickClickLabel}] 输入 0", new(366, 294, 394, 30));
             Hint(g, "[X] 退格", new(366, 332, 394, 30));
-            Hint(g, "[Y] 返回九键中文", new(366, 370, 394, 30));
+            Hint(g, "[Y] 返回九键拼音", new(366, 370, 394, 30));
+        }
+        else if (session.Mode == InputMode.English && session.View.Candidates.Length == 0)
+        {
+            TextAt(g, session.English.Uppercase ? "英文输入 · 大写" : "英文输入 · 小写", titleFont, Color.White, new(366, 96, 360, 28));
+            Hint(g, $"[{preferences.EnglishCaseLabel}] 切换大小写 · 逐字输入，不补全", new(366, 144, 394, 30), Accent);
+            TextAt(g, session.English.Group != null ? "四格选字母 · 空白格不输入" : "选中字母组后确认，展开四格", mainFont, Color.White, new(366, 199, 394, 30));
+            TextAt(g, "回中时不高亮，确认返回九格", smallFont, Muted, new(366, 244, 394, 26));
+            Hint(g, "[B] 返回九格 / 关闭符号", new(366, 279, 394, 30));
+            Hint(g, "[A] 空格    [X] 退格", new(366, 321, 394, 30));
+            Hint(g, "[Y] 切换数字输入", new(366, 370, 394, 30));
         }
         else
         {
-            TextAt(g, "候选词", titleFont, Color.White, new(366, 96, 200, 28));
+            TextAt(g, session.Mode == InputMode.English ? "常用符号" : "候选词", titleFont, Color.White, new(366, 96, 200, 28));
             var view = session.View;
             TextAt(g, $"第 {view.Page + 1} 页", smallFont, Muted, new(676, 101, 84, 24));
             Fill(g, new(366, 134, 394, 35), panelColor);
@@ -193,8 +211,9 @@ internal sealed class MainForm : Form
         }
         using var line = new Pen(Color.FromArgb(UserSettings.Alpha(preferences.PanelOpacity), 49, 57, 65)); g.DrawLine(line, 20, 454, 760, 454);
         TextAt(g, session.Busy ? "正在输入…" : session.Message, smallFont, Color.WhiteSmoke, new(20, 466, 740, 22));
-        Hint(g, session.ExternalInput ? "[A] 选词/空格  长按 [A] 完成  [X] 退格  [B] 关闭候选  长按 [B] 保留草稿并关闭  [View] + [Menu] 完成" :
-            "[A] 选词/空格   [LB] / [RB] 翻选   [X] 退格   [B] 关闭候选   长按 [B] 关闭输入   [View] + [Menu] 开关", new(20, 491, 740, 26));
+        var cancelHint = session.Mode == InputMode.English && session.English.Group != null ? "返回九格" : "关闭候选";
+        Hint(g, session.ExternalInput ? $"[A] 选词/空格  长按 [A] 完成  [X] 退格  [B] {cancelHint}  长按 [B] 保留草稿并关闭  [View] + [Menu] 完成" :
+            $"[A] 选词/空格   [LB] / [RB] 翻选   [X] 退格   [B] {cancelHint}   长按 [B] 关闭输入   [View] + [Menu] 开关", new(20, 491, 740, 26));
         using var border = new Pen(Color.FromArgb(UserSettings.Alpha(preferences.PanelOpacity), 70, 85, 96)); g.DrawRectangle(border, 0, 0, DesignWidth - 1, DesignHeight - 1);
     }
     private void Hint(Graphics g, string text, RectangleF bounds, Color? color = null, bool center = false)
@@ -205,7 +224,9 @@ internal sealed class MainForm : Form
         void Part(int index, RectangleF rect, bool selected)
         {
             Fill(g, rect, selected ? highlight : gridColor);
-            TextAt(g, T9Layout.Label(region, index), gridFont, selected ? Background : Color.White, rect, true);
+            var label = T9Layout.Label(region, index, session.Mode == InputMode.English);
+            if (session.Mode == InputMode.English && !session.English.Uppercase) label = label.ToLowerInvariant();
+            TextAt(g, label, gridFont, selected ? Background : Color.White, rect, true);
         }
         var half = cell.Width / 2;
         if (region == 0)
@@ -254,10 +275,10 @@ internal sealed class MainForm : Form
             if (Cell(i).Contains(point))
             {
                 var cell = Cell(i);
-                var picked = i == region && HighlightedDetail >= 0 ? T9Layout.Quadrant(point.X >= cell.X + 50, point.Y < cell.Y + 50) : -1;
+                var picked = i == region && DetailsExpanded ? T9Layout.Quadrant(point.X >= cell.X + 50, point.Y < cell.Y + 50) : -1;
                 await session.Handle(new(PadAction.Region, i, Detail: picked)); return;
             }
-        if (session.Mode == InputMode.T9)
+        if (session.Mode != InputMode.Numeric)
             for (var i = 0; i < Math.Min(session.View.Candidates.Length, 9); i++)
                 if (CandidateRect(i).Contains(point)) { await session.Handle(new(PadAction.Confirm), i); return; }
     }

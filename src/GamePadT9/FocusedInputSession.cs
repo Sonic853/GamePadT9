@@ -17,6 +17,8 @@ internal sealed class FocusedInputSession : IDisposable
     private readonly Action<string> saveDraft;
     private readonly TsfClient tsf = new();
     private readonly SymbolMenu symbols = new();
+    private readonly EnglishSelection english;
+    internal bool SymbolsVisible => symbols.Visible;
     private readonly FocusInputForm form;
     private readonly Form? overlay;
     private CancellationTokenSource? operation;
@@ -24,23 +26,25 @@ internal sealed class FocusedInputSession : IDisposable
     public bool Enabled { get; private set; }
     public bool Busy { get; private set; }
     public InputMode Mode { get; private set; }
-    public EngineView View => Mode == InputMode.T9 ? (symbols.Visible ? symbols.View : engine.View) : EngineView.Empty;
+    public EngineView View => Mode != InputMode.Numeric && symbols.Visible ? symbols.View : Mode == InputMode.T9 ? engine.View : EngineView.Empty;
     public string Message { get; private set; } = "";
     public string NumberHistory { get; private set; } = "";
     internal bool External => behavior.Mode == InputFocusMode.External;
     private nint FocusHandle => External ? form.ExistingHandle : overlay is { IsHandleCreated: true } ? overlay.Handle : 0;
     internal bool OwnsFocus => FocusHandle != 0 && TsfClient.GetForegroundWindow() == FocusHandle;
+    internal bool CanSelect => Enabled && !Busy && OwnsFocus && !recoveryRequired;
+    internal void CloseSymbols() => symbols.Close();
     internal bool HasRetainedText => RecoveryText().Length > 0;
     internal FocusInputForm Form => form;
     internal string Draft => form.Editor.Text;
     internal event Action? Changed;
     internal event Action<string>? Error;
     internal FocusedInputSession(RimeEngine engine, InputMethodSwitcher inputMethods, InputWindow original, InputBehavior behavior,
-        Func<bool> neutral, Func<bool> buttonsReleased, Func<Rectangle> overlayBounds, Form? overlay, string draft, Action<string> saveDraft)
+        Func<bool> neutral, Func<bool> buttonsReleased, Func<Rectangle> overlayBounds, Form? overlay, string draft, Action<string> saveDraft, EnglishSelection english)
     {
         this.engine = engine; this.inputMethods = inputMethods; this.original = original; this.behavior = behavior;
         this.neutral = neutral; this.overlayBounds = overlayBounds; this.saveDraft = saveDraft;
-        this.buttonsReleased = buttonsReleased;
+        this.buttonsReleased = buttonsReleased; this.english = english;
         try { originalControl = AutomationElement.FocusedElement?.GetRuntimeId(); }
         catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException or COMException) { }
         if (!External && overlay == null) throw new InvalidOperationException("缺少九宫格输入面板。");
@@ -143,7 +147,7 @@ internal sealed class FocusedInputSession : IDisposable
             engine.Clear(); symbols.Close(); Message = External ? "候选已关闭，输入栏文字保留" : "候选已关闭"; Notify(); return;
         }
         if (action.Action == PadAction.SwitchMode)
-        { Mode = Mode == InputMode.T9 ? InputMode.Numeric : InputMode.T9; Message = "已切换输入模式"; Notify(); return; }
+        { Mode = Mode.Next(); symbols.Close(); Message = "已切换到" + Mode.Name(); Notify(); return; }
         Busy = true; operation = new(); var token = operation.Token;
         try
         {
@@ -156,7 +160,7 @@ internal sealed class FocusedInputSession : IDisposable
                 await CompleteAsync(token); return;
             }
             if (action.Action == PadAction.Confirm && candidateIndex == null && !symbols.Visible &&
-                engine.View.Preedit.Length == 0 && engine.View.Candidates.Length == 0 &&
+                (Mode == InputMode.English || (engine.View.Preedit.Length == 0 && engine.View.Candidates.Length == 0)) &&
                 engine.PendingCommit.Length == 0 && pendingText.Length == 0)
             {
                 await CommitAsync(" ", token);
@@ -180,7 +184,7 @@ internal sealed class FocusedInputSession : IDisposable
                 NumberHistory = (NumberHistory + digit); if (NumberHistory.Length > 24) NumberHistory = NumberHistory[^24..];
                 Message = External ? "数字已加入输入栏" : "数字已填入目标"; return;
             }
-            if (Mode == InputMode.T9 && symbols.Visible)
+            if (Mode != InputMode.Numeric && symbols.Visible)
             {
                 switch (action.Action)
                 {
@@ -194,6 +198,15 @@ internal sealed class FocusedInputSession : IDisposable
                         await CommitAsync(text, token); symbols.Close(); return;
                     case PadAction.Region: symbols.Close(); break;
                 }
+            }
+            if (Mode == InputMode.English && action.Action == PadAction.Region)
+            {
+                var text = T9Layout.EnglishText(action, english.Uppercase);
+                if (action.Region == 0 && text.Length == 0)
+                { symbols.Open(english: true); Message = "请选择标点，英文符号在前"; return; }
+                if (text.Length == 0) { Message = "空白区域不输入字母"; return; }
+                await CommitAsync(text, token);
+                Message = External ? "字母已加入输入栏" : "字母已填入目标"; return;
             }
             if (Mode == InputMode.T9 && action.Action == PadAction.Region && action.Region == 0 && T9Layout.Key(action) == 0 && engine.View.Preedit.Length == 0)
             { symbols.Open(); Message = "请选择标点"; return; }

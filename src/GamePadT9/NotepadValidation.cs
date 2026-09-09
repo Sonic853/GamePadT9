@@ -174,6 +174,7 @@ internal sealed class NotepadValidation : Form
         await session.Handle(new(PadAction.Region, 5));
         var draft = engine.View.Preedit;
         await session.Handle(new(PadAction.SwitchMode));
+        await session.Handle(new(PadAction.SwitchMode));
         if (overlay.DisplayedMode != InputMode.Numeric || overlay.DisplayedCandidateCount != 0) throw new Exception("数字面板切换失败。");
         for (var i = 0; i < 9; i++) await session.Handle(new(PadAction.Region, i));
         await session.Handle(new(PadAction.Region, 8, true));
