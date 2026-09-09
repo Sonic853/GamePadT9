@@ -2,7 +2,7 @@
 
 <img width="780" height="520" alt="image" src="https://github.com/user-attachments/assets/4588694a-ac49-4ee1-9f1f-b43cd26c3a17" />
 
-Windows Xbox、PS4（DualShock 4）和 PS5（DualSense）手柄九键输入程序。启动 C# 主程序，在目标文本框同时按下两枚菜单键（Xbox：**View + Menu**；PS4：**Share + Options**；PS5：**Create + Options**）。默认直接输入模式记录原输入法并优先切换到 **GamePad T9**；该条目不可用时切换到 **小白 T9 输入法**。关闭手柄输入后恢复原输入法。也可按程序配置失焦输入或外部输入框。
+Windows Xbox、PS4（DualShock 4）和 PS5（DualSense）手柄九键输入程序。启动 C# 主程序，在目标文本框同时按下两枚菜单键（Xbox：**View + Menu**；PS4：**Share + Options**；PS5：**Create + Options**）。直接输入模式记录原输入法并优先切换到 **GamePad T9**；该条目不可用时切换到 **小白 T9 输入法**。关闭手柄输入后恢复原输入法。也可按程序配置失焦输入或外部输入框。
 
 主程序、手柄控制、九宫格和候选面板使用 **C#**。小白联动扩展通过标准 **C++ TSF 接口**加载本机原版小白 DLL，沿用其名称和标识，不依赖固定版本的内部 IPC。项目也提供“GamePad T9”独立输入法条目；两种方式互斥，均支持 x64 和 x86 目标程序。
 
@@ -12,7 +12,7 @@ Windows Xbox、PS4（DualShock 4）和 PS5（DualSense）手柄九键输入程�
 
 从 **设置 → 输入法组件** 点击“注册/卸载 GamePad T9 输入法”或“注入/还原小白 T9 输入”。已有一种方式时另一种的安装按钮禁用；先还原/卸载才能切换。详细要求、目录和使用方法见 [便携版说明](PORTABLE.md)。版本兼容取决于标准 TSF 接口、x86 Rime API 和 `xiaobai_simp` 方案；不承诺所有未来版本。
 
-发行包的主程序使用不含运行时的单文件发布，`GamePadT9.dll`、`Svg.dll`、`ExCSS.dll`、`SDL3.dll`、`.deps.json` 和 `.runtimeconfig.json` 均整合到 `GamePadT9.exe`。SDL3 启动时自动释放到用户临时缓存；`components` 中供 Windows 和目标进程加载的输入法组件保持独立，分发时仍需复制整个文件夹。开发构建保留独立 DLL，`scripts/package.ps1` 负责合并发行产物。[.NET 单文件发布说明](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview)
+发行包的主程序使用不含运行时的单文件发布，`GamePadT9.dll`、`Svg.dll`、`ExCSS.dll`、`SDL3.dll`、`GamePadT9.Backdrop.dll`、`.deps.json` 和 `.runtimeconfig.json` 均整合到 `GamePadT9.exe`。SDL3 和背景模糊组件启动时自动释放到用户临时缓存；`components` 中供 Windows 和目标进程加载的输入法组件保持独立，分发时仍需复制整个文件夹。开发构建保留独立 DLL，`scripts/package.ps1` 负责合并发行产物。[.NET 单文件发布说明](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview)
 
 ## 开始使用
 
@@ -20,7 +20,7 @@ Windows Xbox、PS4（DualShock 4）和 PS5（DualSense）手柄九键输入程�
 
 WPF UI 及其 Abstractions 依赖也随发行包整合进主程序 EXE，继续使用系统安装的 .NET 10 桌面运行时 x86。界面预览：[手柄设置](artifacts/settings-window.png)、[面板外观](artifacts/settings-appearance-window.png)、[程序列表](artifacts/program-profiles-window.png)。
 
-以下为默认“无屏蔽操作”模式；需要让目标失焦或使用独立输入栏时，先配置下方的“程序列表”。
+全局默认使用“外部输入框”，完成后填入目标程序；选词和编辑先在外部输入栏中完成，再按 View + Menu 或长按 A 提交。以下步骤说明可选的“无屏蔽操作”直接输入模式，可在下方的“程序列表”中切换。
 
 1. 双击 [Start.cmd](Start.cmd)。程序在系统托盘运行，初始关闭手柄输入。
 2. 打开目标程序，将光标放入文本框，保持原先使用的输入法即可。
@@ -43,9 +43,9 @@ WPF UI 及其 Abstractions 依赖也随发行包整合进主程序 EXE，继续�
 
 | 选项 | 行为 |
 |---|---|
-| **无屏蔽操作** | 默认值，保留原来的不抢焦点面板，直接向目标输入。 |
+| **无屏蔽操作** | 保留原来的不抢焦点面板，直接向目标输入。 |
 | **游戏失去焦点** | 只显示九宫格和候选面板，由该面板获得焦点，不显示额外输入窗口；确认候选或输入数字后，松开按键与扳机即可切回原文本框填入，无需摇杆回中，收到提交回执后再让输入面板获得焦点。删除已上屏文字也经过切焦流程。 |
-| **使用外部输入框** | 面板上方显示可编辑输入栏并获得焦点；选词、数字、退格均在输入栏中完成。完成时再统一处理整段文字。 |
+| **使用外部输入框** | 全局默认值。面板上方显示可编辑输入栏并获得焦点；选词、数字、退格均在输入栏中完成。完成时再统一处理整段文字。 |
 
 只有选择“使用外部输入框”时，才启用“外部输入框完成操作”下拉框：
 
@@ -66,7 +66,7 @@ WPF UI 及其 Abstractions 依赖也随发行包整合进主程序 EXE，继续�
 
 失焦模式和外部输入框的“填入至目标程序”会在打开输入时记录原输入法。关闭时先返回原目标、隐藏输入界面，再恢复并核对原输入法，避免切焦覆盖恢复结果；组合键关闭、长按 B、外部输入完成和手柄断开都使用同一恢复流程。恢复失败会通过托盘提示并保留记录供重试。“复制到剪切板”仍不切换目标输入法。
 
-配置保存在 `program-profiles.json`，与手柄及可见度设置分开保存。默认全局为“无屏蔽操作”，完成操作默认为“填入至目标程序”。配置在开启输入时确定，本轮目标不会随输入窗口获得焦点而改变。手动切到其他窗口时暂停输入，不自动向新窗口填字。
+配置保存在 `program-profiles.json`，与手柄及可见度设置分开保存。默认全局为“使用外部输入框”，完成操作默认为“填入至目标程序”；已有全局和独立程序配置仍按保存值加载。配置在开启输入时确定，本轮目标不会随输入窗口获得焦点而改变。手动切到其他窗口时暂停输入，不自动向新窗口填字。
 
 **失焦不是驱动级屏蔽**：允许后台手柄输入的游戏仍可能响应，开启组合键和切焦瞬间也可能被游戏读取。独占全屏游戏可能最小化或关闭聊天框；窗口化、无边框及原文本框能恢复焦点的程序更适合使用。输入栏保持实体 PS / Xbox 连接，不创建虚拟手柄。
 
@@ -109,11 +109,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/register-standalone.
 | 已连接手柄 | 自动选择，保持当前手柄 | 当前识别的设备，支持热插拔刷新 |
 | 选择九宫格区域 | 右摇杆 | 左摇杆 / 右摇杆 |
 | 确认区域输入 | 右扳机 RT / R2 | 左扳机 LT / L2 或右扳机 RT / R2 |
-| 面板背景可见度 | 50% | 0–100% |
-| 九宫格可见度 | 80% | 0–100% |
-| 高亮区域可见度 | 90% | 0–100%，用于九格及候选高亮 |
+| 面板背景可见度 | 50% | 0–100%，两个输入界面共用 |
+| 九宫格可见度 | 80% | 0–100%，同时用于外部输入栏和普通按钮 |
+| 高亮区域可见度 | 90% | 0–100%，用于九格、候选高亮和外部完成按钮 |
+| 背景模糊程度 | 0%（关闭） | 0–100%，输入界面与外部输入框共用 |
 
 **可见度越高越清晰**：0% 完全透明，100% 完全不透明。三个区域的可见度独立生效，文字保持清晰。设置窗口提供实时效果预览，可拖动滑块或填写百分比。
+
+外部输入框与底部输入界面共用这三档可见度，输入栏和按钮的背景不会与整块面板的透明度叠乘。**背景模糊程度**在“设置 → 面板外观”中通过一个滑块共同调整：0% 关闭，100% 最强，文字和 Steam 按键图标保持清晰。模糊实时作用于窗口背后的画面；背景不透明时会遮住模糊效果。旧版分别设置的配置沿用“输入界面”的值，统一应用到两处；再次保存时移除旧的外部输入框模糊字段。没有模糊设置的配置默认为 0%，保留原有可见度。
+
+模糊使用 Windows Composition 的高斯模糊，由一个不接收焦点和输入的效果窗口显示，随对应面板移动、隐藏和关闭。无需另装图形运行时；Windows 合成接口不可用时保留半透明显示。当前已在 Windows 11 验证。预览：[外观与模糊](artifacts/settings-appearance-window.png)、[两个界面效果预览](artifacts/settings-effects-preview.png)。
 
 选择左摇杆后，L3 负责按下摇杆输入；选择右摇杆后使用 R3。数字模式下，所选摇杆按下输入 0，所选扳机输入区域数字 1–9。未选中的摇杆和扳机不触发区域输入。
 
@@ -256,6 +261,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1
 
 项目包含固定版本 SDL 3.4.16 的 x86 DLL，构建时自动复制到主程序旁边。Steam 图标按 `SteamGlyphs.props` 只嵌入当前界面使用的 34 个 SVG，由 SVG.NET 3.4.8 绘制；首次构建需要从 NuGet 还原 `Svg` 及其 ExCSS 依赖。升级本次手柄和图标功能只需重新构建 C# 主程序，无需重新注册输入法组件。
 
+主程序构建会自动调用 `scripts/build-backdrop.ps1`，增量生成 x86 `GamePadT9.Backdrop.dll`。该小型 C++20 组件使用 Windows SDK 中的 C++/WinRT、Composition 和 Direct2D，需 Visual C++ 构建工具及对应 Windows SDK；不依赖 Win2D 或 Windows App SDK。主程序与界面逻辑仍为 C#，发布时模糊组件合并进 EXE，无需注册。`-SkipXiaobai -SkipInputMethodControl` 仍会更新这个界面组件。
+
 本次新增焦点模式还更新了 x64 / x86 输入法辅助组件；升级请运行 `scripts/build.ps1 -SkipXiaobai`，包含主程序和辅助组件构建，无需重新注册输入法。随后可以用以下检查验证程序配置、外部草稿、长按完成和逐次切焦：
 
 ```powershell
@@ -280,6 +287,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Settings
 ```
 
 该检查覆盖四种左右摇杆 / 扳机组合、未选控制不触发输入、切换配置时的按住保护、真实设置控件保存 / 取消 / 恢复默认、配置加载，以及叠加在独立测试窗口上的实际屏幕像素。同时检查 Xbox、PS4、PS5 全部界面 SVG 在 100%、125%、150%、200% 缩放下的绘制、透明背景、边界及绘图状态恢复，并核对原始颜色和嵌入资源。检查使用临时配置，不更改用户保存的设置。
+
+外观检查还覆盖外部输入框的 0%、50/80/90%、100% 实际背景混合、共用模糊滑块的保存与旧配置兼容，以及两处界面背后的真实条纹在 0%、10%、80% 模糊下的边缘变化、输入焦点保持和效果窗口关闭。`--verify-focus` 在共用模糊设置开启时回归完整输入流程。
 
 自动切换和恢复的专项检查：
 
@@ -306,6 +315,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace 
 `scripts/test.ps1 -Notepad` 会创建专用空白测试文档，通过生产控制器的 View + Menu 事件自动切换其编辑线程到 GamePad T9，验证中文、候选、数字、退格和长按 B 恢复。无需预先手动选择输入法。成功后清空测试文字，并只关闭本次创建的标签页；不关闭其他用户文档。记事本已有进程可能继续使用更新前的输入组件 DLL。
 
 ## 验证结果
+
+2026-09-10 背景模糊共用设置：两处界面及预览统一读取一个模糊值，设置页合并为一个滑块。Release 构建零警告、零错误；77 项设置与实际背景效果检查通过，包含旧配置沿用输入界面值、再次保存移除旧字段，以及两处界面的模糊变化和焦点保持。
+
+2026-09-10 半透明与背景模糊：Release 构建零警告、零错误；74 项设置及实际屏幕效果检查通过，x64 / x86 目标各 135 项焦点回归在两处模糊开启时通过。验证外部输入栏独立使用 50/80/90% 可见度、0–100% 边界值、真实背景模糊随程度变化、首次开启不抢焦点，以及关闭后无残留效果窗口。单文件便携包约 4.62 MiB，不包含 .NET 运行时；新目录解压后从临时工作目录运行，74 项外观检查通过，缓存中正确释放 SDL3 与模糊组件，10 个输入组件哈希一致。见 [背景效果与发行验证报告](artifacts/backdrop-verification.json)。
 
 2026-09-10 外部输入框组合键完成：View + Menu 改为完成并关闭，按配置复制或填入目标；提交中重复按组合键不会取消或重复填入。x64 / x86 目标各 135 项程序配置与焦点检查、91 项手柄检查通过，覆盖按键释放等待、候选确认、精确一次填入、输入法恢复，以及只读目标、焦点变化和超长文字时保留草稿。长按 B 和“保留并关闭”继续执行取消操作。
 
@@ -392,6 +405,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace 
 | `src/GamePadT9/UserSettings.cs` | 左右控制及可见度设置的保存、加载和默认值 |
 | `src/GamePadT9/SettingsForm.cs` | 设置窗口与可见度实时预览 |
 | `src/GamePadT9/LayeredWindow.cs` | 独立区域可见度的透明窗口合成 |
+| `src/GamePadT9/ExternalInputBackground.cs` | 外部输入框按区域绘制独立可见度 |
+| `src/GamePadT9/BlurBackdrop.cs`、`native/Backdrop.cpp` | 不抢焦点的实时背景高斯模糊 |
 | `src/GamePadT9/SettingsValidation.cs` | 控制映射、设置持久化及实际屏幕像素验证 |
 | `native/InputMethodControl.cpp` | 在目标线程读取及切换 TSF 输入法、授予面板前台权限的短时消息钩子 |
 | `scripts/build-input-method.ps1` | 构建两种架构的输入法切换辅助组件 |

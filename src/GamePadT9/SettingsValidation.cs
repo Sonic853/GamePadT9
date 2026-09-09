@@ -83,14 +83,19 @@ internal sealed class SettingsValidation : Form
                 form.Control<Wpf.Ui.Controls.NumberBox>("OpacityValue0").Value = 20;
                 form.Control<System.Windows.Controls.Slider>("OpacitySlider1").Value = 65;
                 form.Control<Wpf.Ui.Controls.NumberBox>("OpacityValue2").Value = 95;
+                form.Control<System.Windows.Controls.Slider>("BlurSlider").Value = 25;
+                Check(form.Control<Wpf.Ui.Controls.NumberBox>("BlurValue").Value == 25, "The shared blur slider updates its numeric field");
+                form.Control<Wpf.Ui.Controls.NumberBox>("BlurValue").Value = 70;
                 Check(form.Control<Wpf.Ui.Controls.NumberBox>("OpacityValue0").Text == "20" &&
                     form.Control<Wpf.Ui.Controls.NumberBox>("OpacityValue1").Text == "65", "Percentage fields display the values changed by typing and sliders");
                 await Task.Delay(150); PanelSnapshot.Save(form, Path.Combine(root, "artifacts", "settings-appearance-window.png"));
+                form.Control<PanelVisibilityPreview>("VisibilityPreview").BringIntoView(); await Task.Delay(150);
+                PanelSnapshot.Save(form, Path.Combine(root, "artifacts", "settings-effects-preview.png"));
                 form.Click("SaveSettings");
             }
             var persisted = UserSettings.Load(directory, out warning);
-            Check(saved && warning == null && persisted == new UserSettings { Stick = ControlSide.Left, Trigger = ControlSide.Right, PanelOpacity = 20, GridOpacity = 65, HighlightOpacity = 95 },
-                "Saving real settings controls persists independent bindings and visibility across reloads");
+            Check(saved && warning == null && persisted == new UserSettings { Stick = ControlSide.Left, Trigger = ControlSide.Right, PanelOpacity = 20, GridOpacity = 65, HighlightOpacity = 95, PanelBlur = 70 },
+                "Saving real settings controls persists bindings, visibility and shared blur across reloads");
             using (var cancel = new SettingsForm(persisted, _ => throw new Exception("Cancel unexpectedly saved")))
             {
                 cancel.Show(); cancel.Click("ResetDefaults");
@@ -110,6 +115,19 @@ internal sealed class SettingsValidation : Form
             }
             File.WriteAllText(Path.Combine(directory, "user-settings.json"), "{\"GridOpacity\":150}");
             Check(UserSettings.Load(directory, out warning) == defaults && warning != null, "Invalid settings fall back without preventing startup");
+            foreach (var invalid in new[] { "{\"PanelBlur\":-1}", "{\"PanelBlur\":101}" })
+            {
+                File.WriteAllText(Path.Combine(directory, "user-settings.json"), invalid);
+                Check(UserSettings.Load(directory, out warning) == defaults && warning != null, "Out-of-range blur values fall back safely: " + invalid);
+            }
+            File.WriteAllText(Path.Combine(directory, "user-settings.json"), "{\"PanelOpacity\":35,\"GridOpacity\":75,\"HighlightOpacity\":85}");
+            Check(UserSettings.Load(directory, out warning) == new UserSettings { PanelOpacity = 35, GridOpacity = 75, HighlightOpacity = 85 } && warning == null,
+                "Existing visibility settings retain their values and default shared blur to off");
+            File.WriteAllText(Path.Combine(directory, "user-settings.json"), "{\"PanelBlur\":30,\"ExternalInputBlur\":70}");
+            var legacy = UserSettings.Load(directory, out warning);
+            Check(warning == null && legacy.PanelBlur == 30, "Previously separate blur settings retain the input-panel value for both surfaces");
+            legacy.Save(directory);
+            Check(!File.ReadAllText(Path.Combine(directory, "user-settings.json")).Contains("ExternalInputBlur"), "Saving migrated settings removes the obsolete external blur setting");
 
             var backdropColor = Color.FromArgb(90, 110, 150);
             var start = new ProcessStartInfo(Path.Combine(root, "artifacts", "test-editor-installed", "TestEditor.exe")) { UseShellExecute = false, CreateNoWindow = true };
@@ -157,6 +175,90 @@ internal sealed class SettingsValidation : Form
             finally { if (!backdrop.HasExited) backdrop.CloseMainWindow(); }
         }
         finally { File.Delete(Path.Combine(directory, "user-settings.json")); Directory.Delete(directory); }
+        await VerifySurfaceEffects();
+    }
+    private sealed class PatternBackdrop : Form
+    {
+        internal bool Stripes = true;
+        internal int Unit = 80;
+        protected override bool ShowWithoutActivation => true;
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.Clear(Color.FromArgb(90, 110, 150));
+            if (Stripes) for (var x = 0; x < Width; x += Unit)
+                e.Graphics.FillRectangle((x / Unit) % 2 == 0 ? Brushes.SteelBlue : Brushes.Orange, x, 0, Unit, Height);
+        }
+    }
+    private async Task VerifySurfaceEffects()
+    {
+        using var pattern = new PatternBackdrop { FormBorderStyle = FormBorderStyle.None, ShowInTaskbar = false, TopMost = true, StartPosition = FormStartPosition.Manual };
+        using var input = new InputSession(engine);
+        using var panel = new MainForm(input);
+        await input.Enable(true); panel.Present(4, 0);
+        pattern.Bounds = panel.Bounds; pattern.Unit = Math.Max(1, 80 * panel.Width / 780); pattern.Show();
+        SetWindowPos(pattern.Handle, panel.Handle, pattern.Left, pattern.Top, pattern.Width, pattern.Height, 0x10);
+        var foreground = GetForegroundWindow();
+        var contrasts = new List<int>();
+        foreach (var amount in new[] { 0, 10, 80 })
+        {
+            panel.ApplySettings(new() { PanelOpacity = 0, GridOpacity = 0, HighlightOpacity = 0, PanelBlur = amount });
+            await Task.Delay(250);
+            using var pixels = new Bitmap(panel.Width, panel.Height);
+            using (var g = Graphics.FromImage(pixels)) g.CopyFromScreen(panel.Location, Point.Empty, pixels.Size);
+            pixels.Save(Path.Combine(root, "artifacts", $"panel-blur-{amount}.png"));
+            contrasts.Add(Contrast(pixels.GetPixel(630 * panel.Width / 780, 80 * panel.Height / 520), pixels.GetPixel(650 * panel.Width / 780, 80 * panel.Height / 520)));
+        }
+        Check(contrasts[0] > contrasts[1] && contrasts[1] > contrasts[2] + 5,
+            $"Input-panel blur progressively softens real background edges: {string.Join(", ", contrasts)}");
+        Check(GetForegroundWindow() == foreground, "Changing the input-panel blur does not steal foreground focus");
+        await input.Enable(false);
+        Check(!System.Windows.Forms.Application.OpenForms.OfType<BlurBackdrop>().Any(w => w.Visible), "Closing the grid also hides its blur surface");
+
+        using var external = new FocusInputForm(true, CompletionDestination.Target, "Owned appearance test") { AllowClose = true };
+        external.PlaceAbove(new Rectangle(panel.Left, panel.Top + (int)FocusInputForm.DesignHeight + 8, panel.Width, panel.Height));
+        external.Show(); external.PlaceAbove(new Rectangle(panel.Left, panel.Top + (int)FocusInputForm.DesignHeight + 8, panel.Width, panel.Height));
+        pattern.Stripes = false; pattern.Invalidate();
+        foreach (var preferences in new[] { new UserSettings(), new UserSettings { PanelOpacity = 0, GridOpacity = 0, HighlightOpacity = 0 }, new UserSettings { PanelOpacity = 100, GridOpacity = 100, HighlightOpacity = 100 } })
+        {
+            external.ApplySettings(preferences); await Task.Delay(150); external.UpdateLayout();
+            var file = Path.Combine(root, "artifacts", $"external-opacity-{preferences.PanelOpacity}.png");
+            PanelSnapshot.Save(external, file);
+            using var pixels = new Bitmap(file);
+            var scale = pixels.Width / external.ActualWidth;
+            CheckBlend(pixels.GetPixel(pixels.Width / 2, pixels.Height - 5), Color.FromArgb(20, 24, 29), preferences.PanelOpacity, "external background");
+            var editorPoint = external.Editor.TranslatePoint(new System.Windows.Point(external.Editor.ActualWidth - 20, 12), external);
+            CheckBlend(pixels.GetPixel((int)(editorPoint.X * scale), (int)(editorPoint.Y * scale)), Color.FromArgb(33, 39, 46), preferences.GridOpacity, "external editor");
+            var buttonPoint = external.CompleteButton.TranslatePoint(new System.Windows.Point(external.CompleteButton.ActualWidth - 8, 6), external);
+            CheckBlend(pixels.GetPixel((int)(buttonPoint.X * scale), (int)(buttonPoint.Y * scale)), Color.FromArgb(110, 236, 169), preferences.HighlightOpacity, "external completion highlight");
+        }
+        pattern.Stripes = true; pattern.Invalidate(); contrasts.Clear();
+        external.Activate(); external.Editor.Focus(); await Task.Delay(80); foreground = GetForegroundWindow();
+        Check(foreground == external.Handle && external.Editor.IsKeyboardFocusWithin,
+            $"External appearance test starts with editor focus (foreground={foreground}, window={external.Handle}, focused={external.Editor.IsKeyboardFocusWithin})");
+        foreach (var amount in new[] { 0, 10, 80 })
+        {
+            external.ApplySettings(new() { PanelOpacity = 0, GridOpacity = 0, HighlightOpacity = 0, PanelBlur = amount });
+            await Task.Delay(250);
+            var file = Path.Combine(root, "artifacts", $"external-blur-{amount}.png"); PanelSnapshot.Save(external, file);
+            using var pixels = new Bitmap(file);
+            contrasts.Add(Contrast(pixels.GetPixel(630 * pixels.Width / 780, 20), pixels.GetPixel(650 * pixels.Width / 780, 20)));
+            Check(GetForegroundWindow() == foreground && external.Editor.IsKeyboardFocusWithin,
+                $"External editor keeps keyboard focus at blur {amount}");
+        }
+        Check(contrasts[0] > contrasts[1] && contrasts[1] > contrasts[2] + 5,
+            $"External input uses the same blur setting to soften real background edges: {string.Join(", ", contrasts)}");
+        Check(GetForegroundWindow() == foreground && external.Editor.IsKeyboardFocusWithin,
+            $"Changing external blur retains the editor's keyboard focus (before={foreground}, after={GetForegroundWindow()}, focused={external.Editor.IsKeyboardFocusWithin})");
+        external.Hide(); await Task.Delay(50);
+        Check(!System.Windows.Forms.Application.OpenForms.OfType<BlurBackdrop>().Any(w => w.Visible), "Closing external input leaves no visible blur surface");
+    }
+    private static int Contrast(Color first, Color second) => Math.Abs(first.R - second.R) + Math.Abs(first.G - second.G) + Math.Abs(first.B - second.B);
+    private void CheckBlend(Color pixel, Color fill, int opacity, string region)
+    {
+        var alpha = UserSettings.Alpha(opacity);
+        int Blend(int value, int background) => (value * alpha + background * (255 - alpha) + 127) / 255;
+        Check(Math.Abs(pixel.R - Blend(fill.R, 90)) <= 3 && Math.Abs(pixel.G - Blend(fill.G, 110)) <= 3 && Math.Abs(pixel.B - Blend(fill.B, 150)) <= 3,
+            $"{region} uses its independent {opacity}% visibility against the actual window underneath ({pixel.R},{pixel.G},{pixel.B})");
     }
     private void VerifySvgGlyphs()
     {

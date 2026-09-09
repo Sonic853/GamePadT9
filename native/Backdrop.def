@@ -1,0 +1,5 @@
+LIBRARY "GamePadT9.Backdrop.dll"
+EXPORTS
+    BackdropCreate
+    BackdropSetBlur
+    BackdropDestroy

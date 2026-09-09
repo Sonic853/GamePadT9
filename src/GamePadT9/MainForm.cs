@@ -15,6 +15,7 @@ internal sealed class MainForm : Form
     private uint? pad;
     private GamepadDevice? device;
     private readonly ButtonGlyphs glyphs = new();
+    private readonly BlurBackdrop backdrop = new();
     private GamepadFamily Family => device?.Family ?? session.Preferences.ControllerFamily;
     private float scale = 1;
     private bool dragging;
@@ -57,6 +58,9 @@ internal sealed class MainForm : Form
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
         StartPosition = FormStartPosition.Manual; ClientSize = new Size(DesignWidth, DesignHeight);
         session.Changed += OnSessionChanged;
+        LocationChanged += (_, _) => UpdateBackdrop();
+        SizeChanged += (_, _) => UpdateBackdrop();
+        VisibleChanged += (_, _) => UpdateBackdrop();
         recoveryMenu.Items.Add("复制保留的文字", null, async (_, _) => { if (session.Focused is { } focused) await focused.CopyRetainedTextAsync(); });
         recoveryMenu.Items.Add("清空草稿", null, (_, _) => session.Focused?.ClearRetainedText());
         recoveryMenu.Opening += (_, e) =>
@@ -70,6 +74,8 @@ internal sealed class MainForm : Form
     {
         settings.Validate(); session.Preferences = settings; dirty = true;
         if (Visible) RenderLayer();
+        session.Focused?.Form.ApplySettings(settings);
+        UpdateBackdrop();
     }
     internal void UseDevice(GamepadDevice? value) { if (device != value) { device = value; dirty = true; } }
     internal void Present(int selectedRegion, uint? controllerSlot)
@@ -96,8 +102,10 @@ internal sealed class MainForm : Form
         {
             lastRaise = Environment.TickCount64;
             SetWindowPos(Handle, new nint(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040 | 0x0200);
+            UpdateBackdrop();
         }
     }
+    private void UpdateBackdrop() { if (!IsDisposed && IsHandleCreated) backdrop.Present(Handle, Bounds, session.Preferences.PanelBlur, Visible); }
     protected override void WndProc(ref Message m)
     {
         if (m.Msg == 0x0021 && !acceptsFocus) { m.Result = new nint(3); return; } // MA_NOACTIVATE
@@ -226,7 +234,7 @@ internal sealed class MainForm : Form
     protected override void OnMouseUp(MouseEventArgs e) { dragging = false; Capture = false; base.OnMouseUp(e); }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { session.Changed -= OnSessionChanged; if (session.FocusOverlay == this) session.FocusOverlay = null; recoveryMenu.Dispose(); titleFont.Dispose(); mainFont.Dispose(); gridFont.Dispose(); smallFont.Dispose(); glyphs.Dispose(); }
+        if (disposing) { session.Changed -= OnSessionChanged; if (session.FocusOverlay == this) session.FocusOverlay = null; backdrop.Dispose(); recoveryMenu.Dispose(); titleFont.Dispose(); mainFont.Dispose(); gridFont.Dispose(); smallFont.Dispose(); glyphs.Dispose(); }
         base.Dispose(disposing);
     }
     [DllImport("user32.dll")] private static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int w, int h, uint flags);

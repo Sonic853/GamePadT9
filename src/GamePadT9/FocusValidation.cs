@@ -94,6 +94,7 @@ internal sealed class FocusValidation : Form
             if (active != null) { await active.ShutdownAsync(); active.Dispose(); overlay?.Dispose(); }
             active = new(engine, new InputMethodSwitcher(root))
             {
+                Preferences = new() { PanelBlur = 25 },
                 ControlsReleased = () => released && Controller.IsNeutral(heldState),
                 ButtonsReleased = () => released && Controller.AreButtonsReleased(heldState)
             };
@@ -413,7 +414,7 @@ internal sealed class FocusValidation : Form
         try
         {
             var defaults = ProgramProfiles.Load(folder, out var warning);
-            Check(warning == null && defaults.Resolve("C:\\Game.exe").Mode == InputFocusMode.None, "Missing program settings default to no focus intervention");
+            Check(warning == null && defaults.Resolve("C:\\Game.exe") == new InputBehavior { Mode = InputFocusMode.External, Completion = CompletionDestination.Target }, "Missing program settings default to external input with target completion");
             using var form = new ProgramProfilesForm(defaults, p => p.Save(folder)); form.Topmost = true; form.Show(); await Task.Delay(200);
             System.Windows.Controls.ComboBox Selector(string name) => form.Control<System.Windows.Controls.ComboBox>(name);
             var mode = Selector("InputModeSelector"); var destination = Selector("CompletionSelector");
@@ -444,7 +445,7 @@ internal sealed class FocusValidation : Form
             }
             Check(ProgramProfiles.Load(folder, out _).Global == loaded.Global, "Canceling program configuration does not save edits");
             File.WriteAllText(Path.Combine(folder, "program-profiles.json"), "{\"Global\":{\"Mode\":999}}");
-            Check(ProgramProfiles.Load(folder, out warning).Global.Mode == InputFocusMode.None && warning != null, "Malformed profile values safely fall back with a warning");
+            Check(ProgramProfiles.Load(folder, out warning).Global.Mode == InputFocusMode.External && warning != null, "Malformed profile values fall back to external input with a warning");
         }
         finally { foreach (var file in Directory.GetFiles(folder)) File.Delete(file); Directory.Delete(folder); }
     }

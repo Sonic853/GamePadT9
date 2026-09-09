@@ -43,6 +43,7 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
                     if (inputMethods == null) throw new InvalidOperationException("缺少输入法切换组件。");
                     focused = new(engine, inputMethods, config.Window, config.Behavior, ControlsReleased, ButtonsReleased ?? ControlsReleased, OverlayBounds, FocusOverlay,
                         drafts.GetValueOrDefault(config.Key, ""), text => drafts[config.Key] = text);
+                    focused.Form.ApplySettings(Preferences);
                     focused.Changed += () => Changed?.Invoke();
                     focused.Error += text => Error?.Invoke(text);
                 }

@@ -27,7 +27,8 @@ internal sealed partial class SettingsForm : PanelWindow
     {
         ControllerId = Selection.Id, ControllerName = Selection.Id == null ? null : Selection.Name.Replace("（未连接）", ""), ControllerFamily = Selection.Id == null ? GamepadFamily.Xbox : Selection.Family,
         Stick = (ControlSide)StickSelector.SelectedIndex, Trigger = (ControlSide)TriggerSelector.SelectedIndex,
-        PanelOpacity = Percent(OpacityValue0), GridOpacity = Percent(OpacityValue1), HighlightOpacity = Percent(OpacityValue2)
+        PanelOpacity = Percent(OpacityValue0), GridOpacity = Percent(OpacityValue1), HighlightOpacity = Percent(OpacityValue2),
+        PanelBlur = Percent(BlurValue)
     };
     internal SettingsForm(UserSettings settings, Action<UserSettings> save, Func<IReadOnlyList<GamepadDevice>>? connected = null, Func<string?>? deviceError = null, IntegrationInstaller? integration = null)
     {
@@ -36,9 +37,9 @@ internal sealed partial class SettingsForm : PanelWindow
         foreach (var (token, text) in new[] { ("LS", "左摇杆"), ("RS", "右摇杆") }) StickSelector.Items.Add(BindingChoice(token, text));
         foreach (var (token, text) in new[] { ("LT", "左扳机"), ("RT", "右扳机") }) TriggerSelector.Items.Add(BindingChoice(token, text));
         ActivationKeys.Children.Add(CreateGlyph("View")); ActivationKeys.Children.Add(new TextBlock { Text = "+", VerticalAlignment = VerticalAlignment.Center, Margin = new(8, 0, 8, 0) }); ActivationKeys.Children.Add(CreateGlyph("Menu"));
-        var sliders = new[] { OpacitySlider0, OpacitySlider1, OpacitySlider2 };
-        var numbers = new[] { OpacityValue0, OpacityValue1, OpacityValue2 };
-        for (var i = 0; i < 3; i++)
+        var sliders = new[] { OpacitySlider0, OpacitySlider1, OpacitySlider2, BlurSlider };
+        var numbers = new[] { OpacityValue0, OpacityValue1, OpacityValue2, BlurValue };
+        for (var i = 0; i < sliders.Length; i++)
         {
             var index = i;
             sliders[i].ValueChanged += (_, _) =>
@@ -66,7 +67,7 @@ internal sealed partial class SettingsForm : PanelWindow
     }
     private SteamGlyph CreateGlyph(string token) { var icon = new SteamGlyph { Token = token, Family = Family }; icons.Add(icon); return icon; }
     private static int Percent(NumberBox box) => box.Value is double value && double.IsFinite(value) && value is >= 0 and <= 100
-        ? (int)Math.Round(value) : throw new InvalidDataException("请为可见度输入 0 到 100 之间的数字。");
+        ? (int)Math.Round(value) : throw new InvalidDataException("请为可见度和背景模糊程度输入 0 到 100 之间的数字。");
     internal void SetDraft(UserSettings value)
     {
         updating = true;
@@ -77,6 +78,7 @@ internal sealed partial class SettingsForm : PanelWindow
             OpacityValue0.Value = OpacitySlider0.Value = value.PanelOpacity;
             OpacityValue1.Value = OpacitySlider1.Value = value.GridOpacity;
             OpacityValue2.Value = OpacitySlider2.Value = value.HighlightOpacity;
+            BlurValue.Value = BlurSlider.Value = value.PanelBlur;
         }
         finally { updating = false; }
         Preview();

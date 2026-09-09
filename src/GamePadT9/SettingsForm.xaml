@@ -63,7 +63,7 @@
                             <TextBlock Text="调整各区域的可见度，文字始终保持清晰。" Style="{StaticResource Description}" Margin="0,0,0,24"/>
                             <ui:Card Style="{StaticResource SettingsCard}"><StackPanel>
                                 <TextBlock Text="可见度" Style="{StaticResource SectionHeading}"/>
-                                <TextBlock Text="0% 完全透明 · 100% 完全不透明" Style="{StaticResource Description}" FontSize="12" Margin="0,0,0,18"/>
+                                <TextBlock Text="两处界面共用：背景、九格 / 输入栏、候选 / 完成按钮。0% 完全透明，100% 不透明。" Style="{StaticResource Description}" FontSize="12" Margin="0,0,0,18"/>
                                 <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/><ColumnDefinition Width="96"/><ColumnDefinition Width="22"/></Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions><RowDefinition Height="52"/><RowDefinition Height="52"/><RowDefinition Height="52"/></Grid.RowDefinitions>
                                     <TextBlock Grid.Row="0" Text="面板背景" VerticalAlignment="Center"/><Slider x:Name="OpacitySlider0" Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="4,0,20,0" AutomationProperties.Name="面板背景可见度"/><ui:NumberBox x:Name="OpacityValue0" Grid.Row="0" Grid.Column="2" Minimum="0" Maximum="100" MaxDecimalPlaces="0" SpinButtonPlacementMode="Compact" ClearButtonEnabled="False" Padding="10,6" VerticalAlignment="Center" AutomationProperties.Name="面板背景可见度百分比"/><TextBlock Grid.Row="0" Grid.Column="3" Text="%" VerticalAlignment="Center" Margin="7,0,0,0"/>
@@ -71,7 +71,19 @@
 <TextBlock Grid.Row="2" Text="高亮区域" VerticalAlignment="Center"/><Slider x:Name="OpacitySlider2" Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="4,0,20,0" AutomationProperties.Name="高亮区域可见度"/><ui:NumberBox x:Name="OpacityValue2" Grid.Row="2" Grid.Column="2" Minimum="0" Maximum="100" MaxDecimalPlaces="0" SpinButtonPlacementMode="Compact" ClearButtonEnabled="False" Padding="10,6" VerticalAlignment="Center" AutomationProperties.Name="高亮区域可见度百分比"/><TextBlock Grid.Row="2" Grid.Column="3" Text="%" VerticalAlignment="Center" Margin="7,0,0,0"/>
                                 </Grid>
                             </StackPanel></ui:Card>
-                            <ui:Card Style="{StaticResource SettingsCard}"><StackPanel><TextBlock Text="效果预览" Style="{StaticResource SectionHeading}"/><local:PanelVisibilityPreview x:Name="VisibilityPreview" Height="206" Margin="0,8,0,0"/></StackPanel></ui:Card>
+                            <ui:Card Style="{StaticResource SettingsCard}"><StackPanel>
+                                <TextBlock Text="背景模糊程度" Style="{StaticResource SectionHeading}"/>
+                                <TextBlock Text="输入界面和外部输入框共用。0% 关闭，100% 最强；文字和按键图标保持清晰。" Style="{StaticResource Description}" FontSize="12" Margin="0,8,0,12"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/><ColumnDefinition Width="96"/><ColumnDefinition Width="22"/></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition Height="52"/></Grid.RowDefinitions>
+                                    <TextBlock Text="模糊程度" VerticalAlignment="Center"/>
+                                    <Slider x:Name="BlurSlider" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" Margin="4,0,20,0" VerticalAlignment="Center" AutomationProperties.Name="共用背景模糊程度"/>
+                                    <ui:NumberBox x:Name="BlurValue" Grid.Column="2" Minimum="0" Maximum="100" MaxDecimalPlaces="0" SpinButtonPlacementMode="Compact" ClearButtonEnabled="False" Padding="10,6" VerticalAlignment="Center" AutomationProperties.Name="共用背景模糊百分比"/>
+                                    <TextBlock Grid.Column="3" Text="%" Margin="7,0,0,0" VerticalAlignment="Center"/>
+                                </Grid>
+                            </StackPanel></ui:Card>
+                            <ui:Card Style="{StaticResource SettingsCard}"><StackPanel><TextBlock Text="效果预览" Style="{StaticResource SectionHeading}"/><local:PanelVisibilityPreview x:Name="VisibilityPreview" Height="278" Margin="0,8,0,0"/></StackPanel></ui:Card>
                         </StackPanel>
                         <StackPanel x:Name="ComponentPage" Visibility="Collapsed">
                             <TextBlock Text="输入法组件" Style="{StaticResource PageHeading}"/>

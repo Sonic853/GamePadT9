@@ -21,7 +21,7 @@ internal sealed record InputBehavior
 internal sealed record ProgramProfile(string Path, InputBehavior Behavior);
 internal sealed record ProgramProfiles
 {
-    public InputBehavior Global { get; init; } = new();
+    public InputBehavior Global { get; init; } = new() { Mode = InputFocusMode.External };
     public List<ProgramProfile> Programs { get; init; } = [];
     internal InputBehavior Resolve(string? path) => Programs.FirstOrDefault(p => string.Equals(p.Path, path, StringComparison.OrdinalIgnoreCase))?.Behavior ?? Global;
     internal static string? Executable(InputWindow window) => Executable(window.Process);
@@ -57,7 +57,7 @@ internal sealed record ProgramProfiles
         if (!File.Exists(file)) return new();
         try { var value = JsonSerializer.Deserialize<ProgramProfiles>(File.ReadAllText(file)) ?? throw new InvalidDataException("程序配置为空。"); value.Validate(); return value; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
-        { warning = "无法读取程序配置，已使用全局无屏蔽操作：" + ex.Message; return new(); }
+        { warning = "无法读取程序配置，已使用全局外部输入框：" + ex.Message; return new(); }
     }
     internal void Save(string root)
     {

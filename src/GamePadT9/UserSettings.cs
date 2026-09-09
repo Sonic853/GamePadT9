@@ -16,6 +16,8 @@ internal sealed record UserSettings
     public int PanelOpacity { get; init; } = 50;
     public int GridOpacity { get; init; } = 80;
     public int HighlightOpacity { get; init; } = 90;
+    // Shared by both input surfaces; retain the key for existing settings files.
+    public int PanelBlur { get; init; }
     [JsonIgnore] internal string StickLabel => Stick == ControlSide.Left ? "左摇杆" : "右摇杆";
     [JsonIgnore] internal string StickClickLabel => Stick == ControlSide.Left ? "L3" : "R3";
     [JsonIgnore] internal string TriggerLabel => Trigger == ControlSide.Left ? "LT" : "RT";
@@ -24,8 +26,9 @@ internal sealed record UserSettings
     {
         if (!Enum.IsDefined(Stick) || !Enum.IsDefined(Trigger) || !Enum.IsDefined(ControllerFamily) ||
             (ControllerId != null && string.IsNullOrWhiteSpace(ControllerId)) ||
-            PanelOpacity is < 0 or > 100 || GridOpacity is < 0 or > 100 || HighlightOpacity is < 0 or > 100)
-            throw new InvalidDataException("摇杆、扳机或可见度设置无效。可见度范围为 0–100%。");
+            PanelOpacity is < 0 or > 100 || GridOpacity is < 0 or > 100 || HighlightOpacity is < 0 or > 100 ||
+            PanelBlur is < 0 or > 100)
+            throw new InvalidDataException("摇杆、扳机或外观设置无效。可见度和背景模糊程度范围为 0–100%。");
     }
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
     internal static UserSettings Load(string root, out string? warning)
