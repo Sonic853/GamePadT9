@@ -30,6 +30,7 @@ internal sealed class SettingsValidation : Form
     private async Task Run()
     {
         VerifySvgGlyphs();
+        await LayoutSettingsValidation.Run(root, Check);
         foreach (var stick in Enum.GetValues<ControlSide>()) foreach (var trigger in Enum.GetValues<ControlSide>())
         {
             var controller = new Controller(); controller.Configure(new() { Stick = stick, Trigger = trigger });

@@ -189,6 +189,7 @@ internal sealed class FocusValidation : Form
     private async Task Run()
     {
         await VerifyEnglish();
+        await VerifyLayouts();
         await VerifySpaces();
         await VerifyMixedInput();
         await VerifyProfiles(); VerifyController();
@@ -496,6 +497,78 @@ internal sealed class FocusValidation : Form
                     behavior + ": English completion reaches the target exactly once without simulated number keys");
             }
             finally { heldState = default; active.Changed -= Sync; await active.ShutdownAsync(); }
+        }
+        var process = editors.Single(p => p.Id == field.Current.ProcessId);
+        process.CloseMainWindow(); await process.WaitForExitAsync();
+    }
+    private async Task VerifyLayouts()
+    {
+        var field = await Launch();
+        int[] quadrants = [3, 0, 2, 1];
+        foreach (var behavior in new[] { InputFocusMode.None, InputFocusMode.Defocus, InputFocusMode.External })
+        {
+            await Focus(field); ((ValuePattern)field.GetCurrentPattern(ValuePattern.Pattern)).SetValue("");
+            await Begin(new() { Mode = behavior, Completion = CompletionDestination.Target });
+            var beforeEvents = NumericInput.SentKeyEvents;
+            string Current() => behavior == InputFocusMode.External ? active!.Focused!.Draft : Read(field);
+            var expected = "";
+            foreach (var layout in new[] { LetterLayout.Default, LetterLayout.Clockwise, LetterLayout.Rows })
+            {
+                active!.Preferences = active.Preferences with { PinyinLayout = layout, EnglishLayout = LetterLayout.Custom, EnglishCustomOrder = "2314" };
+                foreach (var letter in "nihao")
+                {
+                    var group = Array.FindIndex(T9Layout.Groups, name => name.Contains(char.ToUpperInvariant(letter)));
+                    var ordinal = T9Layout.Groups[group].IndexOf(char.ToUpperInvariant(letter));
+                    var position = active.Preferences.PinyinOrder.IndexOf((char)('1' + ordinal));
+                    await active.Handle(new(PadAction.Region, group, Detail: quadrants[position]));
+                }
+                Check(Validation.Find(engine, "你好"), behavior + ": physical quadrants compose nihao under preset " + layout);
+                if (behavior == InputFocusMode.External)
+                {
+                    overlay!.Present(1, 1, 3); using var bitmap = overlay.CreateSnapshot();
+                    bitmap.Save(Path.Combine(root, "artifacts", "layout-pinyin-" + layout + ".png"));
+                }
+                await active.Handle(new(PadAction.Confirm)); expected += "你好";
+                Check(Current() == expected, behavior + ": reordered Chinese letters commit the correct word for " + layout);
+            }
+            active!.Preferences = active.Preferences with { PinyinLayout = LetterLayout.Custom, PinyinCustomOrder = "2341" };
+            await active.Handle(new(PadAction.Region, 1, Detail: 2));
+            Check(engine.View.Preedit.Length > 0, behavior + ": moved Chinese blank still falls back to the whole group");
+            await active.Handle(new(PadAction.Cancel));
+            await active.Handle(new(PadAction.Region, 0, Detail: 2)); expected += "，";
+            Check(Current() == expected, behavior + ": Chinese comma stays at the lower left despite a custom blank at that position");
+            await SetMode(InputMode.English);
+            var pad = new Controller(active.English); pad.ConfigureEnglish(true); pad.Update(default, 0);
+            pad.Update(new() { RY = 22000 }, 1);
+            await active.Handle(pad.Update(new() { RY = 22000, RT = 200 }, 2).Single());
+            Check(active.English.Group == 1, behavior + ": right-only English still locks the physical ABC group");
+            pad.Update(new() { RX = 22000, RY = 22000 }, 3);
+            await active.Handle(pad.Update(new() { RX = 22000, RY = 22000, RT = 200 }, 4).Single()); expected += "c";
+            Check(Current() == expected, behavior + ": right-only English uses its independent custom upper-right letter");
+            pad.Update(new() { RX = 22000, RY = 22000, LX = -22000, LY = -22000 }, 5);
+            await active.Handle(pad.Update(new() { RX = 22000, RY = 22000, LX = -22000, LY = -22000, RT = 200 }, 6).Single()); expected += "a";
+            Check(Current() == expected, behavior + ": left-stick priority resolves through the English custom order");
+            await active.Handle(new(PadAction.Region, 1, Detail: 1));
+            Check(Current() == expected && active.View.Candidates.Length == 0, behavior + ": moved English blank remains a no-op with no prediction");
+            await active.Handle(new(PadAction.Next)); await active.Handle(new(PadAction.Region, 1, Detail: 3)); expected += "B";
+            Check(Current() == expected, behavior + ": uppercase and mouse quadrant events use the same custom mapping");
+            if (behavior == InputFocusMode.External)
+            {
+                overlay!.Present(1, 1, 3); using var bitmap = overlay.CreateSnapshot();
+                bitmap.Save(Path.Combine(root, "artifacts", "layout-english-custom.png"));
+            }
+            active.Preferences = active.Preferences with { EnglishUsePinyinLayout = true };
+            await active.Handle(new(PadAction.Region, 1, Detail: 2));
+            Check(Current() == expected, behavior + ": inherited English blank follows the pinyin custom position");
+            await active.Handle(new(PadAction.Region, 1, Detail: 1)); expected += "A";
+            Check(Current() == expected, behavior + ": English reuse changes the submitted letter to the pinyin order");
+            await active.Handle(new(PadAction.Region, 0, Detail: 2)); expected += ",";
+            await active.Handle(new(PadAction.Region, 0, Detail: 3));
+            Check(Current() == expected && active.View.Candidates[0].Text == ".", behavior + ": English comma and symbol-menu positions are never reordered");
+            await active.Handle(new(PadAction.Cancel));
+            if (behavior == InputFocusMode.External) await active.Handle(new(PadAction.Toggle)); else await active.Enable(false);
+            Check(!active.Enabled && Read(field) == expected && NumericInput.SentKeyEvents == beforeEvents,
+                behavior + ": all layout variants finish through text submission without simulated number keys");
         }
         var process = editors.Single(p => p.Id == field.Current.ProcessId);
         process.CloseMainWindow(); await process.WaitForExitAsync();

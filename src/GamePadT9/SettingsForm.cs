@@ -28,6 +28,9 @@ internal sealed partial class SettingsForm : PanelWindow
         ControllerId = Selection.Id, ControllerName = Selection.Id == null ? null : Selection.Name.Replace("（未连接）", ""), ControllerFamily = Selection.Id == null ? GamepadFamily.Xbox : Selection.Family,
         Stick = (ControlSide)StickSelector.SelectedIndex, Trigger = (ControlSide)TriggerSelector.SelectedIndex,
         EnglishCaseShoulder = (ControlSide)EnglishCaseSelector.SelectedIndex,
+        PinyinLayout = PinyinLayoutPicker.SelectedLayout, PinyinCustomOrder = PinyinLayoutPicker.CustomOrder,
+        EnglishLayout = EnglishLayoutPicker.SelectedLayout, EnglishCustomOrder = EnglishLayoutPicker.CustomOrder,
+        EnglishUsePinyinLayout = ReusePinyinLayout.IsChecked == true,
         PanelOpacity = Percent(OpacityValue0), GridOpacity = Percent(OpacityValue1), HighlightOpacity = Percent(OpacityValue2),
         PanelBlur = Percent(BlurValue)
     };
@@ -58,6 +61,7 @@ internal sealed partial class SettingsForm : PanelWindow
         }
         StickSelector.SelectionChanged += (_, _) => Preview(); TriggerSelector.SelectionChanged += (_, _) => Preview();
         EnglishCaseSelector.SelectionChanged += (_, _) => Preview();
+        PinyinLayoutPicker.Changed += RefreshLayouts; EnglishLayoutPicker.Changed += Preview;
         ControllerSelector.SelectionChanged += (_, _) => { Preview(); UpdateDeviceStatus(); };
         SetDraft(settings); RefreshComponents(); ShowPage(0);
         Closing += (_, e) => { if (operating) e.Cancel = true; };
@@ -79,12 +83,25 @@ internal sealed partial class SettingsForm : PanelWindow
             RebuildDevices(value.ControllerId, value.ControllerName, value.ControllerFamily);
             StickSelector.SelectedIndex = (int)value.Stick; TriggerSelector.SelectedIndex = (int)value.Trigger;
             EnglishCaseSelector.SelectedIndex = (int)value.EnglishCaseShoulder;
+            PinyinLayoutPicker.SetValue(value.PinyinLayout, value.PinyinCustomOrder);
+            EnglishLayoutPicker.SetValue(value.EnglishLayout, value.EnglishCustomOrder);
+            ReusePinyinLayout.IsChecked = value.EnglishUsePinyinLayout;
             OpacityValue0.Value = OpacitySlider0.Value = value.PanelOpacity;
             OpacityValue1.Value = OpacitySlider1.Value = value.GridOpacity;
             OpacityValue2.Value = OpacitySlider2.Value = value.HighlightOpacity;
             BlurValue.Value = BlurSlider.Value = value.PanelBlur;
         }
         finally { updating = false; }
+        RefreshLayouts(); Preview();
+    }
+    private void LayoutReuseChanged(object sender, RoutedEventArgs e) => RefreshLayouts();
+    private void RefreshLayouts()
+    {
+        if (updating || EnglishLayoutPicker == null) return;
+        var reuse = ReusePinyinLayout.IsChecked == true;
+        EnglishLayoutPicker.IsEnabled = !reuse;
+        EnglishLayoutPicker.Inherit(reuse ? PinyinLayoutPicker.SelectedLayout : null, PinyinLayoutPicker.CustomOrder);
+        EnglishLayoutHint.Text = reuse ? "正在使用上方的拼音排序；取消勾选后恢复英文独立设置。" : "英文独立排序；选中自定义后可拖拽交换。";
         Preview();
     }
     private void Preview()
@@ -128,6 +145,7 @@ internal sealed partial class SettingsForm : PanelWindow
         InputPage.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         AppearancePage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         ComponentPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
+        LayoutPage.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
         SettingsNavigation.SelectedIndex = index;
         if (index == 2 && !operating) RefreshComponents();
     }

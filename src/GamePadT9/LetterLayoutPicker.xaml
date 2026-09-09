@@ -1,0 +1,38 @@
+<UserControl x:Class="GamePadT9.LetterLayoutPicker"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Style><Style TargetType="UserControl"><Style.Triggers>
+        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
+    </Style.Triggers></Style></UserControl.Style>
+    <UserControl.Resources>
+        <Style x:Key="LayoutChoice" TargetType="RadioButton">
+            <Setter Property="Width" Value="108"/><Setter Property="Margin" Value="0,0,12,0"/>
+            <Setter Property="VerticalAlignment" Value="Top"/>
+            <Setter Property="Background" Value="#14181D"/><Setter Property="BorderBrush" Value="#48524F"/>
+            <Setter Property="Foreground" Value="#E0EAE4"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+                <StackPanel>
+                    <Border x:Name="Frame" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                            Background="{TemplateBinding Background}">
+                        <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}"/>
+                    </Border>
+                    <TextBlock x:Name="CustomCaption" Text="自定义" Visibility="Collapsed" Foreground="{TemplateBinding Foreground}" FontSize="12" Margin="0,8,0,0" HorizontalAlignment="Center"/>
+                </StackPanel>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="Tag" Value="Custom"><Setter TargetName="CustomCaption" Property="Visibility" Value="Visible"/></Trigger>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Frame" Property="Background" Value="#303D37"/></Trigger>
+                    <Trigger Property="IsChecked" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource PanelAccent}"/></Trigger>
+                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Frame" Property="Background" Value="#314D40"/></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+    </UserControl.Resources>
+    <Grid>
+        <WrapPanel x:Name="Choices"/>
+        <Canvas x:Name="DragLayer" IsHitTestVisible="False">
+            <Border x:Name="DragTile" Visibility="Collapsed" Background="#E044725B" BorderBrush="{StaticResource PanelAccent}" BorderThickness="2" CornerRadius="3">
+                <TextBlock x:Name="DragLabel" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White" FontSize="20" FontWeight="SemiBold"/>
+            </Border>
+        </Canvas>
+    </Grid>
+</UserControl>

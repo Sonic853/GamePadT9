@@ -14,6 +14,13 @@ internal sealed record UserSettings
     public ControlSide Stick { get; init; } = ControlSide.Right;
     public ControlSide Trigger { get; init; } = ControlSide.Right;
     public ControlSide EnglishCaseShoulder { get; init; } = ControlSide.Right;
+    public LetterLayout PinyinLayout { get; init; } = LetterLayout.Default;
+    public string PinyinCustomOrder { get; init; } = LetterLayouts.DefaultOrder;
+    public LetterLayout EnglishLayout { get; init; } = LetterLayout.Default;
+    public string EnglishCustomOrder { get; init; } = LetterLayouts.DefaultOrder;
+    public bool EnglishUsePinyinLayout { get; init; }
+    [JsonIgnore] internal string PinyinOrder => LetterLayouts.Order(PinyinLayout, PinyinCustomOrder);
+    [JsonIgnore] internal string EnglishOrder => EnglishUsePinyinLayout ? PinyinOrder : LetterLayouts.Order(EnglishLayout, EnglishCustomOrder);
     public int PanelOpacity { get; init; } = 50;
     public int GridOpacity { get; init; } = 80;
     public int HighlightOpacity { get; init; } = 90;
@@ -27,6 +34,8 @@ internal sealed record UserSettings
     internal static int Alpha(int percentage) => (percentage * 255 + 50) / 100;
     internal void Validate()
     {
+        if (!Enum.IsDefined(PinyinLayout) || !Enum.IsDefined(EnglishLayout) || !LetterLayouts.Valid(PinyinCustomOrder) || !LetterLayouts.Valid(EnglishCustomOrder))
+            throw new InvalidDataException("四格排序无效：每个位置必须恰好出现一次，不能重复或缺失。");
         if (!Enum.IsDefined(Stick) || !Enum.IsDefined(Trigger) || !Enum.IsDefined(EnglishCaseShoulder) || !Enum.IsDefined(ControllerFamily) ||
             (ControllerId != null && string.IsNullOrWhiteSpace(ControllerId)) ||
             PanelOpacity is < 0 or > 100 || GridOpacity is < 0 or > 100 || HighlightOpacity is < 0 or > 100 ||

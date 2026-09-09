@@ -21,6 +21,7 @@
                         <ListBoxItem><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="XboxController24" Margin="0,0,12,0"/><TextBlock Text="手柄与输入"/></StackPanel></ListBoxItem>
                         <ListBoxItem><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Color24" Margin="0,0,12,0"/><TextBlock Text="面板外观"/></StackPanel></ListBoxItem>
                         <ListBoxItem><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Keyboard24" Margin="0,0,12,0"/><TextBlock Text="输入法组件"/></StackPanel></ListBoxItem>
+                        <ListBoxItem><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Apps24" Margin="0,0,12,0"/><TextBlock Text="四格排序"/></StackPanel></ListBoxItem>
                     </ListBox>
                 </DockPanel>
             </Border>
@@ -62,6 +63,24 @@
                                 <DockPanel Margin="0,8,0,0"><StackPanel x:Name="ActivationKeys" Orientation="Horizontal" DockPanel.Dock="Right"/><TextBlock Text="回到目标文本框，同时按下两枚菜单键。" Style="{StaticResource Description}" VerticalAlignment="Center"/></DockPanel>
                                 <TextBlock Text="设置窗口打开期间，手柄输入暂停。" Style="{StaticResource Description}" FontSize="12" Margin="0,12,0,0"/>
                             </StackPanel></ui:Card>
+                        </StackPanel>
+                        <StackPanel x:Name="LayoutPage" Visibility="Collapsed">
+                            <TextBlock Text="四格排序" Style="{StaticResource PageHeading}"/>
+                            <TextBlock Text="点击预览选择排序，四周绿色边框表示已选中。符号格保持原来的三分区。" Style="{StaticResource Description}" Margin="0,0,0,18"/>
+                            <ui:Card Style="{StaticResource SettingsCard}"><StackPanel>
+                                <TextBlock Text="九键拼音" Style="{StaticResource SectionHeading}"/>
+                                <local:LetterLayoutPicker x:Name="PinyinLayoutPicker" Margin="0,8,0,0" AutomationProperties.Name="九键拼音四格排序"/>
+                                <TextBlock Text="选中自定义后，拖拽任意格到另一格上交换位置。" Style="{StaticResource Description}" FontSize="12"/>
+                            </StackPanel></ui:Card>
+                            <ui:Card Style="{StaticResource SettingsCard}"><StackPanel>
+                                <DockPanel Margin="0,0,0,8">
+                                    <CheckBox x:Name="ReusePinyinLayout" Content="与九键拼音复用" DockPanel.Dock="Right" Checked="LayoutReuseChanged" Unchecked="LayoutReuseChanged"/>
+                                    <TextBlock Text="英文输入" Style="{StaticResource SectionHeading}" VerticalAlignment="Center"/>
+                                </DockPanel>
+                                <local:LetterLayoutPicker x:Name="EnglishLayoutPicker" Margin="0,8,0,0" AutomationProperties.Name="英文四格排序"/>
+                                <TextBlock x:Name="EnglishLayoutHint" Style="{StaticResource Description}" FontSize="12"/>
+                            </StackPanel></ui:Card>
+                            <TextBlock Text="预览以 ABC 为例：空白格对应四字母组的第 4 个字母（如 PQRS 的 S）。排序同时应用到摇杆、鼠标点击和输入面板，不影响整组输入或数字。" Style="{StaticResource Description}" FontSize="12"/>
                         </StackPanel>
                         <StackPanel x:Name="AppearancePage" Visibility="Collapsed">
                             <TextBlock Text="面板外观" Style="{StaticResource PageHeading}"/>

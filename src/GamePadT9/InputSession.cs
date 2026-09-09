@@ -141,6 +141,7 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
                 Changed?.Invoke(); return;
             }
         }
+        action = T9Layout.Resolve(action, Preferences, Mode);
         if (focused != null) { await focused.Handle(action, candidateIndex); return; }
         if (action.Action == PadAction.Complete) return;
         if (!Enabled || Busy) return;

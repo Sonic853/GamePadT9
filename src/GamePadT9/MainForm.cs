@@ -224,7 +224,7 @@ internal sealed class MainForm : Form
         void Part(int index, RectangleF rect, bool selected)
         {
             Fill(g, rect, selected ? highlight : gridColor);
-            var label = T9Layout.Label(region, index, session.Mode == InputMode.English);
+            var label = T9Layout.DisplayLabel(region, index, session.Preferences, session.Mode);
             if (session.Mode == InputMode.English && !session.English.Uppercase) label = label.ToLowerInvariant();
             TextAt(g, label, gridFont, selected ? Background : Color.White, rect, true);
         }
