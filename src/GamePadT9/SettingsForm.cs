@@ -28,6 +28,7 @@ internal sealed partial class SettingsForm : PanelWindow
         ControllerId = Selection.Id, ControllerName = Selection.Id == null ? null : Selection.Name.Replace("（未连接）", ""), ControllerFamily = Selection.Id == null ? GamepadFamily.Xbox : Selection.Family,
         Stick = (ControlSide)StickSelector.SelectedIndex, Trigger = (ControlSide)TriggerSelector.SelectedIndex,
         EnglishCaseShoulder = (ControlSide)EnglishCaseSelector.SelectedIndex,
+        EnglishKeepGroup = KeepEnglishGroup.IsChecked == true,
         PinyinLayout = PinyinLayoutPicker.SelectedLayout, PinyinCustomOrder = PinyinLayoutPicker.CustomOrder,
         EnglishLayout = EnglishLayoutPicker.SelectedLayout, EnglishCustomOrder = EnglishLayoutPicker.CustomOrder,
         EnglishUsePinyinLayout = ReusePinyinLayout.IsChecked == true,
@@ -83,6 +84,7 @@ internal sealed partial class SettingsForm : PanelWindow
             RebuildDevices(value.ControllerId, value.ControllerName, value.ControllerFamily);
             StickSelector.SelectedIndex = (int)value.Stick; TriggerSelector.SelectedIndex = (int)value.Trigger;
             EnglishCaseSelector.SelectedIndex = (int)value.EnglishCaseShoulder;
+            KeepEnglishGroup.IsChecked = value.EnglishKeepGroup;
             PinyinLayoutPicker.SetValue(value.PinyinLayout, value.PinyinCustomOrder);
             EnglishLayoutPicker.SetValue(value.EnglishLayout, value.EnglishCustomOrder);
             ReusePinyinLayout.IsChecked = value.EnglishUsePinyinLayout;

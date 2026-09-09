@@ -142,7 +142,7 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
             }
         }
         action = T9Layout.Resolve(action, Preferences, Mode);
-        if (focused != null) { await focused.Handle(action, candidateIndex); return; }
+        if (focused != null) { await focused.Handle(action, candidateIndex, Preferences.EnglishKeepGroup); return; }
         if (action.Action == PadAction.Complete) return;
         if (!Enabled || Busy) return;
         if (action.Action == PadAction.Cancel)
@@ -207,7 +207,11 @@ internal sealed class InputSession(RimeEngine engine, InputMethodSwitcher? input
                 if (text.Length == 0) { Message = "空白区域不输入字母"; return; }
                 Busy = true; Changed?.Invoke();
                 var error = await tsf.Commit(target.Value, text);
-                if (error == null) Message = $"已输入：{text}";
+                if (error == null)
+                {
+                    if (action.Region != 0 && !Preferences.EnglishKeepGroup) English.Reset();
+                    Message = $"已输入：{text}";
+                }
                 else { submissionUnconfirmed = true; Message = error; }
                 return;
             }

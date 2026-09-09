@@ -14,6 +14,7 @@ internal sealed record UserSettings
     public ControlSide Stick { get; init; } = ControlSide.Right;
     public ControlSide Trigger { get; init; } = ControlSide.Right;
     public ControlSide EnglishCaseShoulder { get; init; } = ControlSide.Right;
+    public bool EnglishKeepGroup { get; init; }
     public LetterLayout PinyinLayout { get; init; } = LetterLayout.Default;
     public string PinyinCustomOrder { get; init; } = LetterLayouts.DefaultOrder;
     public LetterLayout EnglishLayout { get; init; } = LetterLayout.Default;

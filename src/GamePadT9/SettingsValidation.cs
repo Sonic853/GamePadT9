@@ -74,6 +74,9 @@ internal sealed class SettingsValidation : Form
                 var caseSelector = form.Control<System.Windows.Controls.ComboBox>("EnglishCaseSelector");
                 Check(caseSelector.SelectedIndex == 1 && caseSelector.Items.Count == 2 && caseSelector.ActualHeight >= 40,
                     "English case switching defaults to the right shoulder in a visible two-choice dropdown");
+                var keepGroup = form.Control<System.Windows.Controls.CheckBox>("KeepEnglishGroup");
+                Check(keepGroup.IsChecked == false && keepGroup.ActualHeight > 0 && !form.Draft.EnglishKeepGroup,
+                    "English letter confirmation defaults to returning to nine cells in an unchecked settings control");
                 var keyboardSelector = form.Control<System.Windows.Controls.ComboBox>("StickSelector");
                 form.Activate(); keyboardSelector.Focus(); await Task.Delay(80);
                 Check(GetForegroundWindow() == form.Handle && keyboardSelector.IsKeyboardFocusWithin, "Modeless WPF controls acquire keyboard focus from the tray host");
@@ -84,6 +87,7 @@ internal sealed class SettingsValidation : Form
                 form.Control<System.Windows.Controls.ComboBox>("StickSelector").SelectedIndex = 0;
                 form.Control<System.Windows.Controls.ComboBox>("TriggerSelector").SelectedIndex = 1;
                 caseSelector.SelectedIndex = 0;
+                keepGroup.IsChecked = true;
                 form.ShowPage(1); await Task.Delay(150);
                 form.Control<Wpf.Ui.Controls.NumberBox>("OpacityValue0").Value = 20;
                 form.Control<System.Windows.Controls.Slider>("OpacitySlider1").Value = 65;
@@ -99,11 +103,12 @@ internal sealed class SettingsValidation : Form
                 form.Click("SaveSettings");
             }
             var persisted = UserSettings.Load(directory, out warning);
-            Check(saved && warning == null && persisted == new UserSettings { Stick = ControlSide.Left, Trigger = ControlSide.Right, EnglishCaseShoulder = ControlSide.Left, PanelOpacity = 20, GridOpacity = 65, HighlightOpacity = 95, PanelBlur = 70 },
-                "Saving real settings controls persists bindings, visibility and shared blur across reloads");
+            Check(saved && warning == null && persisted == new UserSettings { Stick = ControlSide.Left, Trigger = ControlSide.Right, EnglishCaseShoulder = ControlSide.Left, EnglishKeepGroup = true, PanelOpacity = 20, GridOpacity = 65, HighlightOpacity = 95, PanelBlur = 70 },
+                "Saving real settings controls persists English group retention, bindings, visibility and shared blur across reloads");
             using (var cancel = new SettingsForm(persisted, _ => throw new Exception("Cancel unexpectedly saved")))
             {
                 Check(cancel.Control<System.Windows.Controls.ComboBox>("EnglishCaseSelector").SelectedIndex == 0, "Reopening settings restores the saved left shoulder");
+                Check(cancel.Control<System.Windows.Controls.CheckBox>("KeepEnglishGroup").IsChecked == true, "Reopening settings restores English group retention");
                 cancel.Show(); cancel.Click("ResetDefaults");
                 Check(cancel.Draft == defaults, "Restore defaults resets the complete settings draft");
                 cancel.Activate(); await Task.Delay(80);
@@ -130,7 +135,7 @@ internal sealed class SettingsValidation : Form
             }
             File.WriteAllText(Path.Combine(directory, "user-settings.json"), "{\"PanelOpacity\":35,\"GridOpacity\":75,\"HighlightOpacity\":85}");
             Check(UserSettings.Load(directory, out warning) == new UserSettings { PanelOpacity = 35, GridOpacity = 75, HighlightOpacity = 85 } && warning == null,
-                "Existing visibility settings retain their values and default shared blur to off");
+                "Existing settings retain visibility, default shared blur to off and return to nine cells after English letters");
             File.WriteAllText(Path.Combine(directory, "user-settings.json"), "{\"PanelBlur\":30,\"ExternalInputBlur\":70}");
             var legacy = UserSettings.Load(directory, out warning);
             Check(warning == null && legacy.PanelBlur == 30, "Previously separate blur settings retain the input-panel value for both surfaces");

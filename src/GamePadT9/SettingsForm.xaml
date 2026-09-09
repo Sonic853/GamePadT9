@@ -56,6 +56,9 @@
                                         <StackPanel VerticalAlignment="Center"><TextBlock Text="英文大小写切换"/><TextBlock Text="点击切换；符号菜单中肩键仍上下选择" Style="{StaticResource Description}" FontSize="12"/></StackPanel>
                                         <ComboBox x:Name="EnglishCaseSelector" Grid.Column="1" MinHeight="44" AutomationProperties.Name="切换英文大小写的肩键"/>
                                     </Grid>
+                                    <Border Height="1" Background="#3D4547" Margin="0,18"/>
+                                    <CheckBox x:Name="KeepEnglishGroup" Content="输入字母后保留四格"/>
+                                    <TextBlock Text="英文输入展开四格后生效。默认不勾选，输入字母后返回九格；勾选可连续输入同组字母。" Style="{StaticResource Description}" FontSize="12" Margin="0,6,0,0"/>
                                 </StackPanel>
                             </ui:Card>
                             <ui:Card Style="{StaticResource SettingsCard}"><StackPanel>

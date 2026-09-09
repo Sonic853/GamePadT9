@@ -132,7 +132,7 @@ internal sealed class FocusedInputSession : IDisposable
     }
     private string RecoveryText() => engine.PendingCommit.Length > 0 ? engine.PendingCommit : pendingText;
     private string pendingText = "";
-    internal async Task Handle(PadEvent action, int? candidateIndex = null)
+    internal async Task Handle(PadEvent action, int? candidateIndex = null, bool keepEnglishGroup = false)
     {
         // The menu chord finishes an external draft through the same guarded
         // commit path as long A. Explicit cancellation still retains the draft.
@@ -206,6 +206,7 @@ internal sealed class FocusedInputSession : IDisposable
                 { symbols.Open(english: true); Message = "请选择标点，英文符号在前"; return; }
                 if (text.Length == 0) { Message = "空白区域不输入字母"; return; }
                 await CommitAsync(text, token);
+                if (action.Region != 0 && !keepEnglishGroup) english.Reset();
                 Message = External ? "字母已加入输入栏" : "字母已填入目标"; return;
             }
             if (Mode == InputMode.T9 && action.Action == PadAction.Region && action.Region == 0 && T9Layout.Key(action) == 0 && engine.View.Preedit.Length == 0)

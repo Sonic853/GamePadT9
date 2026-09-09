@@ -189,6 +189,7 @@ internal sealed class FocusValidation : Form
     private async Task Run()
     {
         await VerifyEnglish();
+        await VerifyEnglishFailure();
         await VerifyLayouts();
         await VerifySpaces();
         await VerifyMixedInput();
@@ -375,6 +376,9 @@ internal sealed class FocusValidation : Form
                         // Like the host, keep polling button release while a
                         // defocus relay awaits it, without centering the sticks.
                         await Task.Delay(70);
+                        if (behavior == InputFocusMode.Defocus && active.Mode == InputMode.English && !active.Preferences.EnglishKeepGroup &&
+                            action.Action == PadAction.Region && action.Detail >= 0)
+                            Check(active.English.Group != null && active.Busy, "Defocus: four cells remain open while letter submission awaits button release");
                         heldState.Buttons = 0; heldState.LT = heldState.RT = 0;
                         pad.Update(heldState, time++);
                     }
@@ -395,6 +399,34 @@ internal sealed class FocusValidation : Form
                 await Press(default, Buttons.Y); Check(active.Mode == InputMode.Numeric, behavior + ": Y cycles from English to numeric");
                 await Press(default, Buttons.Y); Check(active.Mode == InputMode.T9, behavior + ": Y cycles back to Chinese");
                 await Press(default, Buttons.Y);
+                Check(!active.Preferences.EnglishKeepGroup, behavior + ": new sessions default to returning to nine cells after a letter");
+                await Press(new() { RY = 22000 });
+                await Press(new() { RX = 22000, RY = 22000, LX = -22000, LY = 22000 });
+                Check(Current() == "" && active.English.Group == 1 && overlay!.HighlightedDetail == 3,
+                    behavior + ": the higher-priority left-stick blank does not input or exit four cells with auto-return enabled");
+                await Press(new() { RX = -22000, RY = 22000 });
+                Check(Current() == "" && active.English.Group == 1,
+                    behavior + ": a right-stick blank also keeps the group open with auto-return enabled");
+                await Press(new() { RX = 22000, RY = 22000 });
+                Check(Current() == "a" && active.English.Group == null && !overlay!.DetailsExpanded,
+                    behavior + ": right-trigger letter confirmation immediately restores nine cells without centering the stick");
+                await Press(default, Buttons.RB);
+                await Press(new() { RY = 22000 }, Buttons.R3);
+                await Press(new() { RX = 22000, RY = -22000 }, Buttons.R3);
+                Check(Current() == "aB" && active.English.Group == null && !overlay!.DetailsExpanded && active.English.Uppercase,
+                    behavior + ": right-stick click also returns to nine cells and preserves uppercase");
+                await Press(new() { RY = 22000 });
+                await Press(new() { RX = 22000, RY = 22000, LX = 22000, LY = -22000 });
+                Check(Current() == "aBB" && active.English.Group == null,
+                    behavior + ": the left-stick priority letter also releases the locked English group");
+                await Sample(default);
+                await active.Handle(new(PadAction.Region, 6));
+                await active.Handle(new(PadAction.Region, 6, Detail: 3));
+                Check(Current() == "aBBS" && active.English.Group == null && !overlay!.DetailsExpanded,
+                    behavior + ": mouse letter confirmation shares the default return-to-nine behavior");
+                await Press(default, Buttons.RB);
+                for (var i = 0; i < 4; i++) await active.Handle(new(PadAction.Backspace));
+                active.Preferences = active.Preferences with { EnglishKeepGroup = true };
                 await active.Handle(new(PadAction.Region, 5));
                 await Press(default, Buttons.RB);
                 Check(active.English.Uppercase && active.English.Group == 5, behavior + ": the default right shoulder switches to uppercase without leaving the group");
@@ -501,6 +533,20 @@ internal sealed class FocusValidation : Form
         var process = editors.Single(p => p.Id == field.Current.ProcessId);
         process.CloseMainWindow(); await process.WaitForExitAsync();
     }
+    private async Task VerifyEnglishFailure()
+    {
+        var field = await Launch();
+        await Focus(field); await Begin(new() { Mode = InputFocusMode.Defocus });
+        await SetMode(InputMode.English);
+        await active!.Handle(new(PadAction.Region, 1));
+        var process = editors.Single(p => p.Id == field.Current.ProcessId);
+        process.CloseMainWindow(); await process.WaitForExitAsync();
+        await active.Handle(new(PadAction.Region, 1, Detail: 0));
+        Check(active.Enabled && active.English.Group == 1 && active.Focused!.HasRetainedText,
+            "Defocus: failed English submission to a closed target retains the letter and keeps four cells open");
+        active.Focused!.ClearRetainedText();
+        await active.Enable(false);
+    }
     private async Task VerifyLayouts()
     {
         var field = await Launch();
@@ -509,6 +555,7 @@ internal sealed class FocusValidation : Form
         {
             await Focus(field); ((ValuePattern)field.GetCurrentPattern(ValuePattern.Pattern)).SetValue("");
             await Begin(new() { Mode = behavior, Completion = CompletionDestination.Target });
+            active!.Preferences = active.Preferences with { EnglishKeepGroup = true };
             var beforeEvents = NumericInput.SentKeyEvents;
             string Current() => behavior == InputFocusMode.External ? active!.Focused!.Draft : Read(field);
             var expected = "";
