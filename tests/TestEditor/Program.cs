@@ -32,6 +32,7 @@ internal static class Program
             profileTimer.Start();
         }
         form.ContentRendered += (_, _) => {
+            if (args.Contains("--plain")) { System.Windows.Input.InputMethod.SetIsInputMethodEnabled(editor, false); editor.Focus(); return; }
             Isolation.ActivateProfile(standalone); editor.Focus();
             form.Dispatcher.BeginInvoke(new Action(() => {
                 var component = Process.GetCurrentProcess().Modules.Cast<ProcessModule>().FirstOrDefault(m =>

@@ -126,6 +126,7 @@
                                 <ui:Button x:Name="ToggleXiaobai" Content="注入小白 T9 输入" Icon="{ui:SymbolIcon Link24}" Margin="0,18,0,0" Click="ToggleXiaobaiClick"/>
                             </StackPanel></ui:Card>
                             <ProgressBar x:Name="ComponentProgress" Visibility="Collapsed" IsIndeterminate="True" Height="4" Margin="0,0,0,12"/>
+                            <TextBlock x:Name="BundledRuntimeStatus" Text="独立运行版 · 使用内置 Rime 引擎与词库。无需安装输入法组件即可使用外部输入框并复制文字；自动填入目标程序时再选择下方一种组件。" TextWrapping="Wrap" LineHeight="23" Margin="0,0,0,12" Visibility="Collapsed"/>
                             <TextBlock x:Name="ComponentStatus" TextWrapping="Wrap" LineHeight="23" Margin="0,0,0,12" AutomationProperties.Name="输入法组件状态"/>
                             <TextBlock Text="两种方式互斥，切换前需先卸载或还原。组件操作立即生效，需要管理员授权；操作后请重新打开目标程序。" Style="{StaticResource Description}" FontSize="12"/>
                         </StackPanel>

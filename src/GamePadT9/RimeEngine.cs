@@ -35,17 +35,17 @@ internal sealed class RimeEngine : IDisposable
     private bool initialized;
     public EngineView View { get; private set; } = EngineView.Empty;
     public string PendingCommit { get; private set; } = "";
-    public RimeEngine(Settings settings)
+    public RimeEngine(Settings settings, bool useBundledCache = true)
     {
         var dll = Path.Combine(settings.InstallRoot, "rime.dll");
-        if (!File.Exists(dll)) throw new FileNotFoundException("找不到小白 T9 引擎。", dll);
-        if (Environment.Is64BitProcess) throw new InvalidOperationException("已安装的小白 rime.dll 为 x86，请运行 win-x86 版本。");
+        if (!File.Exists(dll)) throw new FileNotFoundException("找不到 Rime 引擎。", dll);
+        if (Environment.Is64BitProcess) throw new InvalidOperationException("当前 Rime 引擎为 x86，请运行 win-x86 版本。");
         NativeLibrary.SetDllImportResolver(typeof(RimeEngine).Assembly,
             (name, _, _) => name == "rime.dll" ? LoadEngine(dll) : 0);
         Directory.CreateDirectory(settings.UserPath);
         Directory.CreateDirectory(Path.Combine(settings.UserPath, "logs"));
         Directory.CreateDirectory(Path.Combine(settings.UserPath, "build"));
-        var mixed = MixedSchema.Locate(settings, Path.Combine(Settings.FindRoot(), "cache", "mixed"));
+        var mixed = MixedSchema.Locate(settings, useBundledCache ? Path.Combine(Settings.FindRoot(), "cache", "mixed") : null);
         Directory.CreateDirectory(mixed.Build);
         var traits = new Traits
         {
@@ -88,7 +88,7 @@ internal sealed class RimeEngine : IDisposable
     private static nint LoadEngine(string path)
     {
         var library = LoadLibraryEx(path, 0, 0x00000100 | 0x00001000); // DLL directory and default safe search locations.
-        if (library == 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "无法加载本机小白 T9 引擎或其依赖：" + path);
+        if (library == 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "无法加载 Rime 引擎或其依赖：" + path);
         return library;
     }
     [DllImport("kernel32.dll", EntryPoint = "LoadLibraryExW", CharSet = CharSet.Unicode, SetLastError = true)] private static extern nint LoadLibraryEx(string path, nint file, uint flags);

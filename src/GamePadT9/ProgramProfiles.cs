@@ -54,10 +54,11 @@ internal sealed record ProgramProfiles
     internal static ProgramProfiles Load(string root, out string? warning)
     {
         warning = null; var file = System.IO.Path.Combine(root, "program-profiles.json");
-        if (!File.Exists(file)) return new();
+        var defaults = BundledRuntime.Enabled(root) ? BundledRuntime.DefaultProfiles : new();
+        if (!File.Exists(file)) return defaults;
         try { var value = JsonSerializer.Deserialize<ProgramProfiles>(File.ReadAllText(file)) ?? throw new InvalidDataException("程序配置为空。"); value.Validate(); return value; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
-        { warning = "无法读取程序配置，已使用全局外部输入框：" + ex.Message; return new(); }
+        { warning = "无法读取程序配置，已使用全局外部输入框：" + ex.Message; return defaults; }
     }
     internal void Save(string root)
     {

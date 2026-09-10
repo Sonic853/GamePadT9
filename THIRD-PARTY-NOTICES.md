@@ -1,5 +1,15 @@
 # Third-party components
 
+## Rime and bundled input data (independent edition only)
+
+The independent edition includes the official unmodified x86 Rime **1.17.0** DLL,
+the latest stable release verified on 2026-09-10, and input data compiled from
+Xiaobai T9's public distribution. The installed-Xiaobai portable edition does
+not bundle these files. See [the exact sources, hashes and component licenses](data/bundled-licenses/SOURCES.md)
+and [reproduction instructions](data/BUNDLED-RUNTIME.md). The independent ZIP
+contains these notices in `runtime/rime/licenses`; corresponding dictionary
+sources are provided separately as `data/bundled-source.zip` and a CI artifact.
+
 ## WPF UI 4.3.0
 
 The NuGet packages `WPF-UI` and `WPF-UI.Abstractions` provide the Fluent configuration windows, cards, controls, themes and interface icons. They are bundled into the portable application's executable without the .NET runtime.

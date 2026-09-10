@@ -12,7 +12,8 @@ internal static class CacheValidation
         var source = MixedSchema.Locate(settings);
         Check(source.Ready, "The existing v2 cache is reused without deployment");
         var originalWrite = File.GetLastWriteTimeUtc(source.Prism);
-        var fixture = Path.Combine(root, "artifacts", "cache-validation-" + Guid.NewGuid().ToString("N"));
+        // Native Rime file APIs still impose path limits; keep nested fixtures short.
+        var fixture = Path.Combine(root, "artifacts", "cv-" + Guid.NewGuid().ToString("N")[..8]);
         var bundle = Path.Combine(fixture, "bundle");
         source.CopyTo(bundle);
         Check(Directory.EnumerateFiles(bundle, "*", SearchOption.AllDirectories).Count() == 4,
@@ -58,7 +59,7 @@ internal static class CacheValidation
             var destination = Path.Combine(isolated.UserPath, "lua", Path.GetRelativePath(lua, file));
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!); File.Copy(file, destination);
         }
-        using (var engine = new RimeEngine(isolated))
+        using (var engine = new RimeEngine(isolated, useBundledCache: false))
         {
             Check(MixedSchema.Locate(isolated).Ready, "The engine regenerates a missing index and saves a reusable manifest");
             engine.InputLetter('n'); engine.InputRegion(3); engine.InputLetter('h'); engine.InputRegion(1); engine.InputLetter('o');

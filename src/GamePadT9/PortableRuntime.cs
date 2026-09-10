@@ -99,6 +99,7 @@ internal static class PortableRuntime
     }
     internal static Settings Prepare(string root)
     {
+        if (BundledRuntime.Enabled(root)) return BundledRuntime.Prepare(root);
         string? install = null, user = null;
         var overrides = Path.Combine(root, "runtime-location.json");
         if (File.Exists(overrides))

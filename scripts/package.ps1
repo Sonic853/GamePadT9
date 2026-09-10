@@ -1,6 +1,12 @@
-param([switch]$SkipNative, [switch]$SkipMixedCache, [string]$SevenZipPath)
+param([switch]$SkipNative, [switch]$SkipMixedCache, [string]$SevenZipPath, [string]$MixedCacheArchive, [switch]$Independent, [string]$RuntimeArchive)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+if ($SkipMixedCache -and $MixedCacheArchive) { throw '-SkipMixedCache and -MixedCacheArchive cannot be used together.' }
+if ($RuntimeArchive -and !$Independent) { throw '-RuntimeArchive requires -Independent.' }
+if ($Independent) {
+    if (!$RuntimeArchive) { $RuntimeArchive = Join-Path $projectRoot 'data/bundled-runtime.zip' }
+    if (!$SkipMixedCache -and !$MixedCacheArchive) { $MixedCacheArchive = Join-Path $projectRoot 'data/bundled-mixed-cache.zip' }
+}
 if (!$SevenZipPath) {
     $command = Get-Command 7z,7zz,7za -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command) { $SevenZipPath = $command.Source }
@@ -11,6 +17,21 @@ if (!$SevenZipPath) {
 }
 if (!$SevenZipPath -or !(Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) { throw 'Extreme ZIP compression requires 7-Zip. Install it or pass -SevenZipPath.' }
 $SevenZipPath = [IO.Path]::GetFullPath($SevenZipPath)
+# Prepare the cache before compiling, so a missing LFS archive or corrupt
+# cache fails early. This path does not need an installed Xiaobai or x86 .NET.
+$stage = Join-Path $projectRoot ('artifacts\package-' + [Guid]::NewGuid().ToString('N'))
+$folder = Join-Path $stage $(if ($Independent) { 'GamePadT9-Portable-Independent' } else { 'GamePadT9-Portable' })
+New-Item -ItemType Directory -Force $folder | Out-Null
+if ($Independent) {
+    & (Join-Path $PSScriptRoot 'import-bundled-runtime.ps1') -Archive $RuntimeArchive -Destination (Join-Path $folder 'runtime/rime')
+}
+if ($MixedCacheArchive) {
+    & (Join-Path $PSScriptRoot 'import-mixed-cache.ps1') -Archive $MixedCacheArchive -Destination (Join-Path $folder 'cache\mixed')
+}
+if ($Independent -and !$SkipMixedCache) {
+    $runtimeManifest = Get-Content -LiteralPath (Join-Path $folder 'runtime/rime/manifest.json') -Raw | ConvertFrom-Json
+    if ($runtimeManifest.mixedFingerprint -cnotmatch '^[a-f0-9]{64}$' -or !(Test-Path -LiteralPath (Join-Path $folder ('cache/mixed/' + $runtimeManifest.mixedFingerprint + '.json')))) { throw 'The independent runtime and mixed cache do not match.' }
+}
 if (!$SkipNative) {
     foreach ($architecture in @('x64','x86')) {
         & (Join-Path $PSScriptRoot 'build-standalone.ps1') -Architecture $architecture
@@ -18,10 +39,7 @@ if (!$SkipNative) {
         & (Join-Path $PSScriptRoot 'build-input-method.ps1') -Architecture $architecture
     }
 }
-# A new staging folder avoids exporting any earlier machine's settings or learned data.
-$stage = Join-Path $projectRoot ('artifacts\package-' + [Guid]::NewGuid().ToString('N'))
-$folder = Join-Path $stage 'GamePadT9-Portable'
-New-Item -ItemType Directory -Force $folder | Out-Null
+# Publish into a new staging folder without any machine's settings or learned data.
 dotnet publish (Join-Path $projectRoot 'src\GamePadT9\GamePadT9.csproj') -c Release -r win-x86 --self-contained false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $folder --nologo
 if ($LASTEXITCODE -ne 0) { throw 'Framework-dependent publish failed.' }
 $hashes = [ordered]@{}
@@ -41,12 +59,12 @@ foreach ($architecture in @('x64','x86')) {
     }
 }
 $hashes | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $folder 'components\sha256.json') -Encoding UTF8
-'{"format":1,"runtime":"auto-detect-installed-xiaobai","platform":"Windows x64; x86 host","dotnet":"Microsoft.WindowsDesktop.App 10.0 (x86)","selfContained":false,"singleFileHost":true}' | Set-Content -LiteralPath (Join-Path $folder 'portable.json') -Encoding UTF8
+@{ format=1; runtime=$(if ($Independent) { 'bundled-rime' } else { 'auto-detect-installed-xiaobai' }); platform='Windows x64; x86 host'; dotnet='Microsoft.WindowsDesktop.App 10.0 (x86)'; selfContained=$false; singleFileHost=$true } | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $folder 'portable.json') -Encoding UTF8
 [IO.File]::WriteAllText((Join-Path $folder 'Start.cmd'), "@echo off`r`nstart `"GamePad T9`" `"%~dp0GamePadT9.exe`"`r`n", [Text.Encoding]::ASCII)
 [IO.File]::WriteAllText((Join-Path $folder 'Settings.cmd'), "@echo off`r`nstart `"GamePad T9`" `"%~dp0GamePadT9.exe`" --settings`r`n", [Text.Encoding]::ASCII)
-Copy-Item -LiteralPath (Join-Path $projectRoot 'PORTABLE.md') -Destination (Join-Path $folder 'README.md')
+Copy-Item -LiteralPath (Join-Path $projectRoot $(if ($Independent) { 'PORTABLE-INDEPENDENT.md' } else { 'PORTABLE.md' })) -Destination (Join-Path $folder 'README.md')
 if (Test-Path -LiteralPath (Join-Path $projectRoot 'LICENSE')) { Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination $folder }
-if (!$SkipMixedCache) {
+if (!$SkipMixedCache -and !$MixedCacheArchive) {
     # Export only verified compiled spelling data. No source copy, user database or logs.
     dotnet run --project (Join-Path $projectRoot 'src\GamePadT9\GamePadT9.csproj') -c Release --no-build -- --export-mixed-cache (Join-Path $folder 'cache\mixed')
     if ($LASTEXITCODE -ne 0) { throw 'Mixed cache export failed. Start GamePadT9 once to generate it, or pass -SkipMixedCache.' }
@@ -54,11 +72,12 @@ if (!$SkipMixedCache) {
 # This is an allowlisted package, never a copy of artifacts/ or the developer workspace.
 $dist = Join-Path $projectRoot 'dist'
 New-Item -ItemType Directory -Force $dist | Out-Null
-$zip = Join-Path $dist ('GamePadT9-Portable-Windows-x64-NoRuntime-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.zip')
+$archivePrefix = if ($Independent) { 'GamePadT9-Portable-Independent-Windows-x64-NoRuntime-' } else { 'GamePadT9-Portable-Windows-x64-NoRuntime-' }
+$zip = Join-Path $dist ($archivePrefix + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.zip')
 Push-Location -LiteralPath $stage
 try {
     # Maximum documented Deflate settings, compatible with Windows ZIP extraction.
-    & $SevenZipPath a -tzip -mm=Deflate -mx=9 -mfb=258 -mpass=15 -mmt=off -mtc=off -mta=off -bd -bso0 $zip 'GamePadT9-Portable'
+    & $SevenZipPath a -tzip -mm=Deflate -mx=9 -mfb=258 -mpass=15 -mmt=off -mtc=off -mta=off -bd -bso0 $zip ([IO.Path]::GetFileName($folder))
     if ($LASTEXITCODE -ne 0) { throw 'Extreme ZIP compression failed.' }
     & $SevenZipPath t -bd -bso0 $zip
     if ($LASTEXITCODE -ne 0) { throw 'ZIP integrity verification failed.' }
@@ -67,6 +86,9 @@ $sha = (Get-FileHash -LiteralPath $zip).Hash
 [IO.File]::WriteAllText($zip + '.sha256', $sha + '  ' + [IO.Path]::GetFileName($zip) + "`r`n")
 [IO.File]::WriteAllText((Join-Path $projectRoot 'artifacts\portable-package-path.txt'), $folder)
 [IO.File]::WriteAllText((Join-Path $projectRoot 'artifacts\portable-archive-path.txt'), $zip)
+$variant = if ($Independent) { 'independent' } else { 'xiaobai' }
+[IO.File]::WriteAllText((Join-Path $projectRoot "artifacts/portable-$variant-package-path.txt"), $folder)
+[IO.File]::WriteAllText((Join-Path $projectRoot "artifacts/portable-$variant-archive-path.txt"), $zip)
 Write-Output "Portable folder: $folder"
 Write-Output "Portable archive: $zip"
 Write-Output "SHA256: $sha"

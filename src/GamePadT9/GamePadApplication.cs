@@ -41,7 +41,10 @@ internal sealed class GamePadApplication : ApplicationContext
         {
             var window = InputMethodSwitcher.Foreground() ?? throw new InvalidOperationException("请先选中目标程序，再开启输入。");
             var path = ProgramProfiles.Executable(window);
-            return (profiles.Resolve(path), window, path ?? $"process:{window.Process}");
+            var behavior = profiles.Resolve(path);
+            if (BundledRuntime.Enabled(root) && !(behavior.Mode == InputFocusMode.External && behavior.Completion == CompletionDestination.Clipboard))
+                BundledRuntime.RequireInputComponent(behavior, new IntegrationInstaller(root).State());
+            return (behavior, window, path ?? $"process:{window.Process}");
         };
         controller.Configure(preferences);
         overlay.SettingsRequested += async () => await OpenSettings();

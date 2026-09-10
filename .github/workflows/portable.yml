@@ -1,0 +1,117 @@
+name: Build portable (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+  pull_request:
+    branches: [master, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable:
+    name: Windows portable (${{ matrix.edition }})
+    runs-on: windows-2025
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [xiaobai, independent]
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+
+    steps:
+      - name: Checkout source and LFS assets
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Set up .NET 10 SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Verify checked-in assets and cache importer
+        run: |
+          git lfs fsck
+          if ($LASTEXITCODE -ne 0) { throw 'Git LFS assets are missing or corrupt.' }
+          ./tests/Packaging/CacheArchive.Tests.ps1
+          ./tests/Packaging/BundledRuntimeArchive.Tests.ps1
+
+      # Native scripts locate Visual C++ and the Windows SDK with vswhere.
+      # The x64 SDK cross-publishes the x86 host without running it or Rime.
+      - name: Build native components and portable EXE
+        run: |
+          if ('${{ matrix.edition }}' -eq 'independent') { ./scripts/package.ps1 -Independent }
+          else { ./scripts/package.ps1 -MixedCacheArchive ./data/mixed-cache.zip }
+
+      - name: Install x86 desktop runtime for independent verification
+        if: matrix.edition == 'independent'
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'dotnet-install.ps1'
+          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $installer
+          $runtime = Join-Path $env:RUNNER_TEMP 'dotnet-x86'
+          & $installer -Channel 10.0 -Runtime windowsdesktop -Architecture x86 -InstallDir $runtime -NoPath
+          "DOTNET_ROOT_X86=$runtime" | Add-Content -LiteralPath $env:GITHUB_ENV
+
+      - name: Verify independent runtime without Xiaobai
+        if: matrix.edition == 'independent'
+        run: |
+          $archive = (Get-Content -LiteralPath artifacts/portable-archive-path.txt -Raw).Trim()
+          ./tests/Packaging/Independent.Tests.ps1 -Archive $archive -RegenerateCache
+
+      - name: Record package checksum
+        run: |
+          $archive = (Get-Content -LiteralPath artifacts/portable-archive-path.txt -Raw).Trim()
+          $checksum = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          $recorded = (Get-Content -LiteralPath ($archive + '.sha256') -Raw).Split(' ')[0]
+          if ($checksum -ne $recorded) { throw 'Portable ZIP checksum mismatch.' }
+          $name = [IO.Path]::GetFileName($archive)
+          $size = [Math]::Round((Get-Item -LiteralPath $archive).Length / 1MB, 2)
+          $requirement = if ('${{ matrix.edition }}' -eq 'independent') { 'Includes Rime 1.17.0 and a dictionary; Xiaobai and TSF components are optional for clipboard editing.' } else { 'Requires an installed Xiaobai T9 on the target PC.' }
+          @(
+            '### GamePad T9 portable package'
+            "- File: $name ($size MiB)"
+            "- SHA256: $checksum"
+            '- Includes x86/x64 input components and the mixed-input index cache.'
+            '- Requires .NET 10 Desktop Runtime (x86); no .NET runtime is bundled.'
+            "- $requirement"
+            '- Download the ZIP and checksum from the artifact below.'
+          ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+
+      - name: Upload portable ZIP and SHA256
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: GamePadT9-Portable-${{ matrix.edition }}-Windows-x64-NoRuntime-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Upload corresponding dictionary source data
+        if: matrix.edition == 'independent'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: GamePadT9-Rime-Source-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            data/bundled-source.zip
+            data/BUNDLED-RUNTIME.md
+            data/bundled-licenses/
+            scripts/prepare-bundled-runtime.ps1
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

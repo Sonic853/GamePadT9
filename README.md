@@ -10,11 +10,41 @@ Windows Xbox、PS4（DualShock 4）和 PS5（DualSense）手柄九键输入程�
 
 运行 `scripts/package.ps1` 生成 `dist/GamePadT9-Portable-Windows-x64-NoRuntime-<时间>.zip`，包含主程序、SDL、SVG 图标、两种架构的输入组件及已生成的混合索引缓存，**不包含 .NET 运行时**。目标电脑需安装 [.NET 10 桌面运行时（Windows x86）](https://dotnet.microsoft.com/zh-cn/download/dotnet/10.0)，再解压运行 `Start.cmd`，无需安装 SDK 或开发工具。主程序为 32 位，仅安装 x64 运行时不满足要求。便携包自动检测本机的小白安装目录，不带开发电脑的绝对路径、引擎、原始词库或注册表备份；未识别时可选择目录。
 
-打包使用 7-Zip 的 ZIP/Deflate 极限参数：`-mx=9 -mfb=258 -mpass=15 -mmt=off`，压缩完成后自动检查完整性。保持普通 ZIP 格式，可由 Windows 直接解压。构建电脑需安装 7-Zip；不在 PATH 时可传入 `-SevenZipPath`，目标电脑不需要安装。默认附带缓存；仅在需要精简发行包时使用 `-SkipMixedCache`。缓存导出只包含索引、编译方案、校验清单和完成标记，不包含学习数据。打包前需已有一次成功生成的缓存。
+打包使用 7-Zip 的 ZIP/Deflate 极限参数：`-mx=9 -mfb=258 -mpass=15 -mmt=off`，压缩完成后自动检查完整性。保持普通 ZIP 格式，可由 Windows 直接解压。构建电脑需安装 7-Zip；不在 PATH 时可传入 `-SevenZipPath`，目标电脑不需要安装。默认附带缓存；仅在需要精简发行包时使用 `-SkipMixedCache`。缓存导出只包含索引、编译方案、校验清单和完成标记，不包含学习数据。默认从本机已生成的缓存导出；也可通过 `-MixedCacheArchive data/mixed-cache.zip` 使用仓库中的缓存归档，此时构建电脑无需安装小白 T9。
 
 从 **设置 → 输入法组件** 点击“注册/卸载 GamePad T9 输入法”或“注入/还原小白 T9 输入”。已有一种方式时另一种的安装按钮禁用；先还原/卸载才能切换。详细要求、目录和使用方法见 [便携版说明](PORTABLE.md)。版本兼容取决于标准 TSF 接口、x86 Rime API 和 `xiaobai_simp` 方案；不承诺所有未来版本。
 
 发行包的主程序使用不含运行时的单文件发布，`GamePadT9.dll`、`Svg.dll`、`ExCSS.dll`、`SDL3.dll`、`GamePadT9.Backdrop.dll`、`.deps.json` 和 `.runtimeconfig.json` 均整合到 `GamePadT9.exe`。SDL3 和背景模糊组件启动时自动释放到用户临时缓存；`components` 中供 Windows 和目标进程加载的输入法组件保持独立，分发时仍需复制整个文件夹。开发构建保留独立 DLL，`scripts/package.ps1` 负责合并发行产物。[.NET 单文件发布说明](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview)
+
+### 独立运行版（无需安装小白 T9）
+
+运行 `scripts/package.ps1 -Independent` 可额外生成 `GamePadT9-Portable-Independent-Windows-x64-NoRuntime-<时间>.zip`，内置官方最新稳定版 **Rime 1.17.0**（2026-09-10 核对）、公开发行词库及匹配的混合索引。主程序仍为 C#，仍需目标电脑的 .NET 10 桌面运行时 x86。
+
+独立版没有输入法组件也能启动，默认外部输入框完成后复制到剪贴板，不强制打开注册界面。自动填入目标时可注册 GamePad T9 输入法，或在已安装小白时选择小白联动；两种接入方式继续互斥。手柄组词始终使用内置引擎与词库，不受小白更新、卸载或 `runtime-location.json` 影响。已保存的程序配置保留原值，不自动改写完成方式。
+
+不传 `-Independent` 的原便携包保留现有小白检测、启动引导和打包行为，也不包含内置运行数据。两个包均使用极限 ZIP 压缩、附带匹配缓存且不包含 .NET。独立版的引擎和词库独立放在 `runtime/rime`，需要随完整文件夹分发。
+
+详见 [独立版使用说明](PORTABLE-INDEPENDENT.md) 和 [内置数据与构建说明](data/BUNDLED-RUNTIME.md)。两类包的路径分别记录在 `artifacts/portable-independent-archive-path.txt` 与 `artifacts/portable-xiaobai-archive-path.txt`。
+
+## GitHub Actions 生成便携包
+
+[Build portable (Windows)](.github/workflows/portable.yml) 使用 `windows-2025` runner，在推送至 `master` / `main`、推送 `v*` 标签或向主分支提交 PR 时构建，也可在 GitHub 的 **Actions → Build portable (Windows) → Run workflow** 手动运行。
+
+流程下载 Git LFS 中的 SDL、SVG 和缓存资源，安装 .NET 10 SDK，运行缓存导入检查，编译 x86 / x64 输入组件及 x86 背景模糊组件，再生成不含 .NET 运行时的单文件便携包。Visual C++、Windows SDK 和 7-Zip 使用 [Windows runner 预装工具](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)。构建直接读取已校验的缓存归档，无需安装小白、注册输入法或启动 GUI。
+
+流程矩阵同时构建 `xiaobai` 原版和 `independent` 独立版。独立版额外安装仅供验证使用的 x86 .NET 桌面运行时，在未安装小白的 runner 中检查启动、中文候选、缓存复用、损坏文件拒绝及离线索引重建；不把运行时加入 ZIP。
+
+完成后在该次运行的 **Artifacts** 下载 `GamePadT9-Portable-<xiaobai 或 independent>-Windows-x64-NoRuntime-<运行编号>-<重试编号>`，其中包含便携 ZIP 和 `.sha256` 校验文件，保留 30 天。独立版另提供 `GamePadT9-Rime-Source-*` 对应词库源码归档。ZIP 内部仍使用极限压缩；[artifact 上传](https://github.com/actions/upload-artifact) 关闭外层重复压缩。标签构建同样提供 artifact，不自动发布 GitHub Release。
+
+从仅含仓库文件的新目录本地复现：
+
+```powershell
+git lfs pull
+./tests/Packaging/CacheArchive.Tests.ps1
+./scripts/package.ps1 -MixedCacheArchive ./data/mixed-cache.zip
+```
+
+本地需 .NET 10 SDK、Visual C++ 构建工具和 Windows SDK、7-Zip。缓存维护方法及来源见 [data/MIXED-CACHE.md](data/MIXED-CACHE.md)。图形界面、输入法切换及真实手柄测试仍需在配置好的交互式 Windows 环境中运行，CI 打包通过不代表这些交互检查已执行。
 
 ## 开始使用
 
@@ -378,6 +408,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace 
 `scripts/test.ps1 -Notepad` 会创建专用空白测试文档，通过生产控制器的 View + Menu 事件自动切换其编辑线程到 GamePad T9，验证中文、候选、数字、退格和长按 B 恢复。无需预先手动选择输入法。成功后清空测试文字，并只关闭本次创建的标签页；不关闭其他用户文档。记事本已有进程可能继续使用更新前的输入组件 DLL。
 
 ## 验证结果
+
+2026-09-10 独立运行版：使用官方 Rime 1.17.0，Release 构建零警告、零错误。两类便携包搬迁后均通过 159 项引擎/控制器基础检查及 16 项组件互斥与回滚检查；独立版另通过 14 项缓存检查、17 项无 TSF 端点的外部输入检查，包含中文、英文、空格、数字及 View + Menu 完成复制。确认正常启动仅驻留托盘、不强制打开组件窗口，预置缓存直接复用，丢失索引可离线重新编译。运行数据导入 8 项、索引导入 11 项及设置 103 项检查通过。独立版 ZIP 约 56.97 MiB，原版约 10.75 MiB，都不包含 .NET。报告：[独立运行](artifacts/independent-package-verification.json)、[双版本发行](artifacts/dual-portable-verification.json)。
+
+本轮机器仅安装原版小白，未注册 GamePad T9 或小白联动组件，因此系统安装模式的焦点回归在输入端点检查处停止；未更改本机注册，改用 x64 / x86 测试进程私有组件完成联动输入检查。系统注册后的自动切换、真实游戏和实体手柄本轮未复测，新增 CI 流程尚未在远端执行。缓存重建时 Rime 会记录缺少原始 `.dict.yaml`，随后使用内置编译词库生成索引；已通过重建后的混合拼音候选检查，正常缓存启动无此日志。
 
 2026-09-10 背景模糊共用设置：两处界面及预览统一读取一个模糊值，设置页合并为一个滑块。Release 构建零警告、零错误；77 项设置与实际背景效果检查通过，包含旧配置沿用输入界面值、再次保存移除旧字段，以及两处界面的模糊变化和焦点保持。
 

@@ -39,6 +39,7 @@ internal sealed partial class SettingsForm : PanelWindow
     {
         this.save = save; this.connected = connected ?? (() => []); this.deviceError = deviceError ?? (() => null); this.integration = integration;
         InitializeComponent();
+        BundledRuntimeStatus.Visibility = integration?.UsesBundledEngine == true ? Visibility.Visible : Visibility.Collapsed;
         foreach (var (token, text) in new[] { ("LS", "左摇杆"), ("RS", "右摇杆") }) StickSelector.Items.Add(BindingChoice(token, text));
         foreach (var (token, text) in new[] { ("LT", "左扳机"), ("RT", "右扳机") }) TriggerSelector.Items.Add(BindingChoice(token, text));
         foreach (var (token, text) in new[] { ("LB", "左肩键"), ("RB", "右肩键") }) EnglishCaseSelector.Items.Add(BindingChoice(token, text));

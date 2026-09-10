@@ -61,6 +61,7 @@ internal sealed class IntegrationInstaller
         this.runRegistration = runRegistration ?? Register;
     }
     private string BackupFile => Path.Combine(installRoot, "components", "original-registration.json");
+    internal bool UsesBundledEngine => BundledRuntime.Enabled(root);
     private bool Managed(string path) => Path.GetFullPath(Environment.ExpandEnvironmentVariables(path)).StartsWith(installRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     internal ComponentState State()
     {
