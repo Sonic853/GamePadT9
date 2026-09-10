@@ -6,7 +6,7 @@ using System.Windows.Automation;
 namespace GamePadT9;
 
 // Uses a deliberately IME-disabled, owned editor. The clipboard path must work
-// with no TSF endpoint and without querying/switching a target input profile.
+// with no TSF endpoint, including automatic clipboard fallback at completion.
 internal sealed class IndependentValidation : Form
 {
     private sealed class EmptyRegistry : IComponentRegistry
@@ -40,12 +40,12 @@ internal sealed class IndependentValidation : Form
         var fixture = Path.Combine(root, "artifacts", "independent-settings-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(fixture);
         File.WriteAllText(Path.Combine(fixture, "portable.json"), "{\"runtime\":\"bundled-rime\"}");
         var profiles = ProgramProfiles.Load(fixture, out var warning);
-        Check(warning == null && profiles.Global is { Mode: InputFocusMode.External, Completion: CompletionDestination.Clipboard },
-            "A fresh independent profile defaults to external editing and clipboard completion");
+        Check(warning == null && profiles.Global is { Mode: InputFocusMode.External, Completion: CompletionDestination.Target },
+            "A fresh independent profile defaults to external editing and target completion");
         var noComponents = new ComponentState(false, false, false);
         BundledRuntime.RequireInputComponent(profiles.Global, noComponents);
         Check(noComponents.CanRegister && !noComponents.CanInject, "No Xiaobai installation is needed for clipboard use or standalone registration");
-        foreach (var behavior in new[] { new InputBehavior(), new() { Mode = InputFocusMode.Defocus }, new() { Mode = InputFocusMode.External } })
+        foreach (var behavior in new[] { new InputBehavior(), new() { Mode = InputFocusMode.Defocus } })
         {
             var blocked = false;
             try { BundledRuntime.RequireInputComponent(behavior, noComponents); } catch (InvalidOperationException) { blocked = true; }
@@ -53,8 +53,8 @@ internal sealed class IndependentValidation : Form
             BundledRuntime.RequireInputComponent(behavior, new(true, false, false));
             BundledRuntime.RequireInputComponent(behavior, new(false, true, true));
         }
-        var saved = profiles with { Global = new() { Mode = InputFocusMode.Defocus } }; saved.Save(fixture);
-        Check(ProgramProfiles.Load(fixture, out _).Global == saved.Global, "Existing completion preferences are not silently changed to clipboard");
+        var saved = profiles with { Global = new() { Mode = InputFocusMode.External, Completion = CompletionDestination.Clipboard } }; saved.Save(fixture);
+        Check(ProgramProfiles.Load(fixture, out _).Global == saved.Global, "An explicitly saved clipboard preference is preserved");
         File.Delete(Path.Combine(fixture, "program-profiles.json"));
         File.WriteAllText(Path.Combine(fixture, "portable.json"), "{\"runtime\":\"auto-detect-installed-xiaobai\"}");
         Check(!BundledRuntime.Enabled(fixture) && ProgramProfiles.Load(fixture, out _).Global.Completion == CompletionDestination.Target,
@@ -71,6 +71,11 @@ internal sealed class IndependentValidation : Form
         using var editor = Process.Start(start) ?? throw new Exception("Owned editor failed to start.");
         using var methods = new ProfileScope(root);
         using var input = new InputSession(engine, methods.Switcher);
+        var status = new ComponentState(true, false, false);
+        var statusReads = 0;
+        input.ComponentStatus = () => { statusReads++; return status; };
+        List<string> notices = [];
+        input.Error += notices.Add;
         using var overlay = new MainForm(input);
         input.Changed += () => overlay.Present(4, 1);
         input.OverlayBounds = () => overlay.Bounds;
@@ -91,10 +96,12 @@ internal sealed class IndependentValidation : Form
                 window = InputMethodSwitcher.Foreground(); if (window?.Process == editor.Id) break;
             }
             Check(window?.Process == editor.Id && TsfClient.FindTarget() == null, "The owned plain editor has focus and no gamepad TSF endpoint");
-            input.FocusConfiguration = () => (BundledRuntime.DefaultProfiles.Global, window!.Value, "independent-owned-editor");
+            var behavior = profiles.Global;
+            input.FocusConfiguration = () => (behavior, window!.Value, "independent-owned-editor");
+            var originalProfile = (await methods.Switcher.RunAsync(window!.Value, "query")).After;
             await input.Enable(true);
-            Check(input.Enabled && input.Focused?.OwnsFocus == true && !methods.Switcher.HasSavedProfiles,
-                "External clipboard input opens without activating or recording any input method");
+            Check(input.Enabled && input.Focused?.OwnsFocus == true && methods.Switcher.HasSavedProfiles && statusReads == 0,
+                "Target completion records the original profile and opens without checking component availability");
             foreach (var region in new[] { 5, 3, 3, 1, 5 }) await input.Handle(new(PadAction.Region, region));
             Check(Validation.Find(engine, "你好"), "The built-in dictionary returns Chinese candidates without Xiaobai");
             await input.Handle(new(PadAction.Confirm));
@@ -104,6 +111,7 @@ internal sealed class IndependentValidation : Form
             await input.Handle(new(PadAction.SwitchMode));
             await input.Handle(new(PadAction.Region, 0)); await input.Handle(new(PadAction.Region, 4, StickClick: true));
             const string expected = "你好a 10";
+            var lastCopied = expected;
             Check(input.Focused!.Draft == expected, "Chinese, English, space and numeric input edit the local draft");
             var oldClipboard = Clipboard.GetDataObject(); var snapshot = new DataObject();
             if (oldClipboard != null) foreach (var format in oldClipboard.GetFormats(false))
@@ -114,14 +122,61 @@ internal sealed class IndependentValidation : Form
             }
             try
             {
+                status = noComponents; // The completion decision must not use an activation-time snapshot.
                 await input.Handle(new(PadAction.Toggle));
                 Check(!input.Enabled && Clipboard.GetText() == expected && ((ValuePattern)field.GetCurrentPattern(ValuePattern.Pattern)).Current.Value == "",
-                    "View + Menu finishes by copying the draft without typing into the target");
-                Check(!methods.Switcher.HasSavedProfiles && NumericInput.SentKeyEvents == 0, "Clipboard-only operation never switches input methods or simulates keyboard events");
+                    "View + Menu falls back to copying the draft when components are missing");
+                Check(statusReads == 1 && notices.Count == 1 && notices[0].Contains("已复制到剪贴板") && input.Message == notices[0],
+                    "Completion checks the current component state once and preserves the tray notification after closing");
+                Check(input.Focused!.Draft.Length == 0 && !methods.Switcher.HasSavedProfiles && NumericInput.SentKeyEvents == 0,
+                    "Successful fallback clears the completed draft, restores the profile and sends no keyboard events");
+                Check((await methods.Switcher.RunAsync(window.Value, "query")).After == originalProfile,
+                    "Fallback restores the input profile captured before the external editor opened");
+
+                async Task BeginDraft(string text)
+                {
+                    SetForegroundWindow(editor.MainWindowHandle); field.SetFocus(); await Task.Delay(80);
+                    await input.Enable(true);
+                    Check(input.Enabled && input.Focused!.OwnsFocus, "The external editor can reopen for another completion");
+                    input.Focused!.Form.Editor.Text = text;
+                }
+                status = new(false, false, true); // Original Xiaobai alone is not an injected component.
+                await BeginDraft(new string('测', 1030));
+                Check(statusReads == 1, "Reopening never checks component availability early");
+                await input.Handle(new(PadAction.Complete)); lastCopied = new string('测', 1030);
+                Check(!input.Enabled && Clipboard.GetText() == lastCopied && statusReads == 2 && notices.Count == 2,
+                    "Long-confirm completion falls back with plain Xiaobai installed, even beyond the TSF transaction limit");
+                await input.Handle(new(PadAction.Complete));
+                Check(statusReads == 2 && notices.Count == 2, "Repeated completion after closure never copies or notifies twice");
+
+                await BeginDraft("保留草稿"); await input.Handle(new(PadAction.Disable));
+                Check(!input.Enabled && input.Focused!.Draft == "保留草稿" && Clipboard.GetText() == lastCopied && statusReads == 2 && notices.Count == 2,
+                    "Cancellation retains the draft without querying components, copying or notifying");
+                behavior = behavior with { Completion = CompletionDestination.Clipboard };
+                await BeginDraft("主动复制");
+                Check(!methods.Switcher.HasSavedProfiles, "Explicit clipboard completion does not capture a target profile");
+                await input.Handle(new(PadAction.Complete)); lastCopied = "主动复制";
+                Check(!input.Enabled && Clipboard.GetText() == lastCopied && statusReads == 2 && notices.Count == 2,
+                    "An explicit clipboard preference bypasses component detection and emits no fallback warning");
+
+                // The plain editor deliberately has no endpoint. Available components must
+                // attempt normal target delivery; other delivery failures retain the draft.
+                behavior = profiles.Global;
+                foreach (var available in new[] { new ComponentState(true, false, false), new(false, true, true) })
+                {
+                    status = available; var reads = statusReads;
+                    await BeginDraft("目标不支持"); await input.Handle(new(PadAction.Complete));
+                    Check(input.Enabled && input.Focused!.Draft == "目标不支持" && statusReads == reads + 1 && Clipboard.GetText() == lastCopied && notices.Count == 2,
+                        available.Standalone ? "Registered components use target delivery; an unsupported target retains the draft" :
+                            "Injected components use target delivery; an unsupported target never silently copies");
+                    await input.Handle(new(PadAction.Disable));
+                }
+                Check(!methods.Switcher.HasSavedProfiles && NumericInput.SentKeyEvents == 0,
+                    "All completion scenarios restore their profiles and generate no simulated keyboard events");
             }
             finally
             {
-                if (Clipboard.ContainsText() && Clipboard.GetText() == expected)
+                if (Clipboard.ContainsText() && Clipboard.GetText() == lastCopied)
                 {
                     // Yield to the STA message pump between OLE clipboard retries.
                     for (var attempt = 0; ; attempt++)

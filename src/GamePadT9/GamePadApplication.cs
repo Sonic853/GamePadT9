@@ -31,7 +31,7 @@ internal sealed class GamePadApplication : ApplicationContext
         profiles = ProgramProfiles.Load(root, out var profileWarning);
         warning ??= profileWarning;
         inputMethods = new(root);
-        session = new(engine, inputMethods) { Preferences = preferences }; overlay = new(session);
+        session = new(engine, inputMethods) { Preferences = preferences, ComponentStatus = () => new IntegrationInstaller(root).State() }; overlay = new(session);
         controller = new(session.English);
         session.ControlsReleased = () => !deviceConnected || Controller.IsNeutral(latestState);
         session.ButtonsReleased = () => !deviceConnected || Controller.AreButtonsReleased(latestState);
@@ -42,7 +42,7 @@ internal sealed class GamePadApplication : ApplicationContext
             var window = InputMethodSwitcher.Foreground() ?? throw new InvalidOperationException("请先选中目标程序，再开启输入。");
             var path = ProgramProfiles.Executable(window);
             var behavior = profiles.Resolve(path);
-            if (BundledRuntime.Enabled(root) && !(behavior.Mode == InputFocusMode.External && behavior.Completion == CompletionDestination.Clipboard))
+            if (BundledRuntime.Enabled(root) && behavior.Mode != InputFocusMode.External)
                 BundledRuntime.RequireInputComponent(behavior, new IntegrationInstaller(root).State());
             return (behavior, window, path ?? $"process:{window.Process}");
         };

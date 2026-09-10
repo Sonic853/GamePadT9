@@ -54,7 +54,7 @@ internal sealed record ProgramProfiles
     internal static ProgramProfiles Load(string root, out string? warning)
     {
         warning = null; var file = System.IO.Path.Combine(root, "program-profiles.json");
-        var defaults = BundledRuntime.Enabled(root) ? BundledRuntime.DefaultProfiles : new();
+        var defaults = new ProgramProfiles();
         if (!File.Exists(file)) return defaults;
         try { var value = JsonSerializer.Deserialize<ProgramProfiles>(File.ReadAllText(file)) ?? throw new InvalidDataException("程序配置为空。"); value.Validate(); return value; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)

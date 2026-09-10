@@ -11,6 +11,7 @@ internal sealed class FocusedInputSession : IDisposable
     private readonly InputWindow original;
     private readonly int[]? originalControl;
     private readonly InputBehavior behavior;
+    private readonly Func<ComponentState> componentStatus;
     private readonly Func<bool> neutral;
     private readonly Func<bool> buttonsReleased;
     private readonly Func<Rectangle> overlayBounds;
@@ -40,9 +41,11 @@ internal sealed class FocusedInputSession : IDisposable
     internal event Action? Changed;
     internal event Action<string>? Error;
     internal FocusedInputSession(RimeEngine engine, InputMethodSwitcher inputMethods, InputWindow original, InputBehavior behavior,
-        Func<bool> neutral, Func<bool> buttonsReleased, Func<Rectangle> overlayBounds, Form? overlay, string draft, Action<string> saveDraft, EnglishSelection english)
+        Func<bool> neutral, Func<bool> buttonsReleased, Func<Rectangle> overlayBounds, Form? overlay, string draft, Action<string> saveDraft, EnglishSelection english,
+        Func<ComponentState> componentStatus)
     {
         this.engine = engine; this.inputMethods = inputMethods; this.original = original; this.behavior = behavior;
+        this.componentStatus = componentStatus;
         this.neutral = neutral; this.overlayBounds = overlayBounds; this.saveDraft = saveDraft;
         this.buttonsReleased = buttonsReleased; this.english = english;
         try { originalControl = AutomationElement.FocusedElement?.GetRuntimeId(); }
@@ -289,18 +292,23 @@ internal sealed class FocusedInputSession : IDisposable
     {
         var text = Draft;
         if (text.Length == 0) { await CloseCoreAsync(); return; }
-        if (behavior.Completion == CompletionDestination.Clipboard)
+        // Query at completion, not when the draft opens: components can be installed
+        // or removed while editing. A missing component is the only automatic fallback.
+        var fallback = behavior.Completion == CompletionDestination.Target && componentStatus() is { Standalone: false, Injected: false };
+        if (behavior.Completion == CompletionDestination.Clipboard || fallback)
         {
             await CopyAsync(text, token);
-            Message = "文字已复制到剪切板";
+            var completed = fallback ? "未检测到已注册的 GamePad T9 或小白 T9 注入组件，文字已复制到剪贴板，请手动粘贴。" : "文字已复制到剪贴板";
             // Clipboard success is final even if returning focus is later denied.
-            form.Editor.Clear(); await CloseCoreAsync(); return;
+            form.Editor.Clear(); await CloseCoreAsync(completedMessage: completed);
+            if (fallback) Error?.Invoke(completed); // The input panel is closed; use the host's tray notification.
+            return;
         }
         // The existing TSF bridge accepts one bounded transaction; never split and risk partial duplicates.
         if (text.Length > 1024) throw new InvalidOperationException("目标单次最多接收 1024 个 UTF-16 单元；请缩短文字或使用复制保留文字按钮。");
         await InTargetAsync(() => tsf.Commit(RequireTarget(), text), token, returnToPanel: false);
-        form.Editor.Clear(); Message = "文字已填入目标程序";
-        await CloseCoreAsync();
+        form.Editor.Clear();
+        await CloseCoreAsync(completedMessage: "文字已填入目标程序");
     }
     private bool TargetMatches()
     {
@@ -379,7 +387,7 @@ internal sealed class FocusedInputSession : IDisposable
         for (var i = 0; i < 25 && !OwnsFocus; i++) await Task.Delay(20);
         return OwnsFocus;
     }
-    private async Task CloseCoreAsync(bool waitForRelease = true)
+    private async Task CloseCoreAsync(bool waitForRelease = true, string? completedMessage = null)
     {
         var returnFocus = OwnsFocus;
         if (returnFocus && waitForRelease)
@@ -406,8 +414,9 @@ internal sealed class FocusedInputSession : IDisposable
         Enabled = false;
         form.Hide();
         Notify(); // Hide the grid too, including disconnect/settings/shutdown paths.
+        if (completedMessage != null) Message = completedMessage;
         var restored = await RestoreProfileAsync();
-        if (restored) Message = "输入已关闭";
+        if (restored) Message = completedMessage ?? "输入已关闭";
         if (focusError != null) { Message += "；" + focusError; Error?.Invoke(focusError); }
     }
     private async Task<bool> RestoreProfileAsync()

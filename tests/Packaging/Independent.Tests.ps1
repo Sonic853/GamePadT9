@@ -65,7 +65,7 @@ if ($RegenerateCache) {
 }
 if ($EditorPath) {
     $ui = Run ('--verify-independent "' + (Get-Item -LiteralPath $EditorPath).FullName + '"')
-    Check ($ui.passed -and $ui.checks.Count -gt 15) 'External editing, settings and clipboard completion work against an editor without a TSF endpoint.'
+    Check ($ui.passed -and $ui.checks.Count -ge 32) 'External target completion falls back to the clipboard with a notice when components are absent; explicit preferences and failed deliveries retain their expected behavior.'
 }
 $report = @{ passed=$true; checks=$checks; fixture=$fixture; selfTestChecks=$first.checks.Count }
 $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $projectRoot 'artifacts/independent-package-verification.json') -Encoding UTF8

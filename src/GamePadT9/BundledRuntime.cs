@@ -42,10 +42,10 @@ internal static class BundledRuntime
         if (!File.Exists(lua)) File.Copy(Path.Combine(payload, "data", "rime.lua"), lua);
         return new(payload, manifest.Schema, Path.Combine(payload, "data", "build"), user);
     }
-    internal static ProgramProfiles DefaultProfiles => new() { Global = new() { Mode = InputFocusMode.External, Completion = CompletionDestination.Clipboard } };
     internal static void RequireInputComponent(InputBehavior behavior, ComponentState state)
     {
-        if (behavior.Mode == InputFocusMode.External && behavior.Completion == CompletionDestination.Clipboard) return;
+        // External drafts can finish on the clipboard when no component is available.
+        if (behavior.Mode == InputFocusMode.External) return;
         if (!state.Standalone && !state.Injected)
             throw new InvalidOperationException("自动填入需要输入法组件。请在设置 → 输入法组件中注册 GamePad T9 或启用小白 T9 联动；也可在程序列表中选择使用外部输入框 → 完成输入后复制到剪切板。");
     }
