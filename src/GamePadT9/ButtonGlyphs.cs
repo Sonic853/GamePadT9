@@ -13,7 +13,29 @@ internal sealed class ButtonGlyphs : IDisposable
     internal static readonly string[] Buttons = ["A", "B", "X", "Y", "LB", "RB", "LT", "RT", "L3", "R3", "LS", "RS", "Left", "Right", "View", "Menu"];
     internal static string FileName(GamepadFamily family, string button)
     {
-        var ps = family != GamepadFamily.Xbox;
+        if (family == GamepadFamily.SteamController2015)
+            return (button switch
+            {
+                "A" => "shared_color_button_a", "B" => "shared_color_button_b", "X" => "shared_color_button_x", "Y" => "shared_color_button_y",
+                "LB" => "sc_lb", "RB" => "sc_rb", "LT" => "sc_lt", "RT" => "sc_rt",
+                "View" => "sc_button_l_arrow", "Menu" => "sc_button_r_arrow",
+                "LS" => "sc_dpad", "RS" => "sc_touchpad",
+                "L3" => "sc_dpad_click", "R3" => "sc_touchpad_click",
+                "Left" => "sc_lg", "Right" => "sc_rg",
+                _ => throw new ArgumentOutOfRangeException(nameof(button))
+            }) + ".svg";
+        if (family == GamepadFamily.SteamController)
+            return (button switch
+            {
+                "A" => "shared_button_a", "B" => "shared_button_b", "X" => "shared_button_x", "Y" => "shared_button_y",
+                "LB" => "sc_l1", "RB" => "sc_r1", "LT" => "sc_l2", "RT" => "sc_r2",
+                "View" => "sd_button_view", "Menu" => "sd_button_menu",
+                "LS" => "sd_ltrackpad", "RS" => "sd_rtrackpad",
+                "L3" => "sd_ltrackpad_click", "R3" => "sd_rtrackpad_click",
+                "Left" => "shared_dpad_left", "Right" => "shared_dpad_right",
+                _ => throw new ArgumentOutOfRangeException(nameof(button))
+            }) + ".svg";
+        var ps = family is GamepadFamily.PS4 or GamepadFamily.PS5;
         var prefix = family == GamepadFamily.PS5 ? "ps5" : "ps4";
         var name = button switch
         {

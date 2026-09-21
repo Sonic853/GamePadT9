@@ -1,0 +1,108 @@
+--- a/src/joystick/hidapi/SDL_hidapi_steam.c
++++ b/src/joystick/hidapi/SDL_hidapi_steam.c
+@@ -28,6 +28,9 @@
+ 
+ #ifdef SDL_JOYSTICK_HIDAPI_STEAM
+ 
++// GamePad T9 modification: expose both 2015 touchpads without the legacy
++// mouse-axis rotation/offset, and expose their clicks independently of the stick.
++
+ // Define this if you want to log all packets from the controller
+ #if 0
+ #define DEBUG_STEAM_PROTOCOL
+@@ -54,6 +57,8 @@
+ {
+     SDL_GAMEPAD_BUTTON_STEAM_RIGHT_PADDLE = 11,
+     SDL_GAMEPAD_BUTTON_STEAM_LEFT_PADDLE,
++    SDL_GAMEPAD_BUTTON_STEAM_LEFT_PAD,
++    SDL_GAMEPAD_BUTTON_STEAM_RIGHT_PAD,
+     SDL_GAMEPAD_NUM_STEAM_BUTTONS,
+ };
+ 
+@@ -76,6 +81,8 @@
+     // Right pad coordinates
+     short sRightPadX;
+     short sRightPadY;
++    short sRawLeftPadX, sRawLeftPadY;
++    short sRawRightPadX, sRawRightPadY;
+ 
+     // Center pad coordinates
+     short sCenterPadX;
+@@ -802,6 +809,11 @@
+     nRightPadX = pState->sRightPadX;
+     nRightPadY = pState->sRightPadY;
+ 
++    pState->sRawLeftPadX = pState->sLeftPadX;
++    pState->sRawLeftPadY = pState->sLeftPadY;
++    pState->sRawRightPadX = pState->sRightPadX;
++    pState->sRawRightPadY = pState->sRightPadY;
++
+     RotatePad(&nLeftPadX, &nLeftPadY, -flRotationAngle);
+     RotatePad(&nRightPadX, &nRightPadY, flRotationAngle);
+ 
+@@ -872,6 +884,8 @@
+     if (ucOptionDataMask & k_EBLELeftTrackpadChunk) {
+         int nLength = sizeof(pState->sLeftPadX) + sizeof(pState->sLeftPadY);
+         SDL_memcpy(&pState->sLeftPadX, pData, nLength);
++        pState->sRawLeftPadX = pState->sLeftPadX;
++        pState->sRawLeftPadY = pState->sLeftPadY;
+         if (pState->ulButtons & STEAM_LEFTPAD_FINGERDOWN_MASK) {
+             nPadOffset = 1000;
+         } else {
+@@ -889,6 +903,8 @@
+         int nLength = sizeof(pState->sRightPadX) + sizeof(pState->sRightPadY);
+ 
+         SDL_memcpy(&pState->sRightPadX, pData, nLength);
++        pState->sRawRightPadX = pState->sRightPadX;
++        pState->sRawRightPadY = pState->sRightPadY;
+ 
+         if (pState->ulButtons & STEAM_RIGHTPAD_FINGERDOWN_MASK) {
+             nPadOffset = 1000;
+@@ -1263,6 +1279,8 @@
+     joystick->nbuttons = SDL_GAMEPAD_NUM_STEAM_BUTTONS;
+     joystick->naxes = SDL_GAMEPAD_AXIS_COUNT;
+     joystick->nhats = 1;
++    SDL_PrivateJoystickAddTouchpad(joystick, 1);
++    SDL_PrivateJoystickAddTouchpad(joystick, 1);
+ 
+     if (IsDongle(device->product_id)) {
+         joystick->connection_state = SDL_JOYSTICK_CONNECTION_WIRELESS;
+@@ -1446,6 +1464,10 @@
+                                           ((ctx->m_state.ulButtons & STEAM_BUTTON_BACK_RIGHT_MASK) != 0));
+ 
+                 SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_RIGHT_STICK,
++                                          ((ctx->m_state.ulButtons & STEAM_BUTTON_RIGHTPAD_CLICKED_MASK) != 0));
++                SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_STEAM_LEFT_PAD,
++                                          ((ctx->m_state.ulButtons & STEAM_BUTTON_LEFTPAD_CLICKED_MASK) != 0));
++                SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_STEAM_RIGHT_PAD,
+                                           ((ctx->m_state.ulButtons & STEAM_BUTTON_RIGHTPAD_CLICKED_MASK) != 0));
+ 
+                 if (ctx->m_state.ulButtons & STEAM_DPAD_UP_MASK) {
+@@ -1470,6 +1492,15 @@
+             SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFTY, ~ctx->m_state.sLeftStickY);
+             SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTX, ctx->m_state.sRightPadX);
+             SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTY, ~ctx->m_state.sRightPadY);
++
++            SDL_SendJoystickTouchpad(timestamp, joystick, 0, 0,
++                (ctx->m_state.ulButtons & STEAM_LEFTPAD_FINGERDOWN_MASK) != 0,
++                ctx->m_state.sRawLeftPadX / 65536.0f + 0.5f,
++                -ctx->m_state.sRawLeftPadY / 65536.0f + 0.5f, 1.0f);
++            SDL_SendJoystickTouchpad(timestamp, joystick, 1, 0,
++                (ctx->m_state.ulButtons & STEAM_RIGHTPAD_FINGERDOWN_MASK) != 0,
++                ctx->m_state.sRawRightPadX / 65536.0f + 0.5f,
++                -ctx->m_state.sRawRightPadY / 65536.0f + 0.5f, 1.0f);
+ 
+             if (ctx->report_sensors) {
+                 float values[3];
+--- a/src/joystick/SDL_gamepad.c
++++ b/src/joystick/SDL_gamepad.c
+@@ -1250,7 +1250,8 @@
+ 
+         if (SDL_IsJoystickSteamController(vendor, product)) {
+             // Steam controllers have 2 back paddle buttons
+-            SDL_strlcat(mapping_string, "paddle1:b11,paddle2:b12,", sizeof(mapping_string));
++            // GamePad T9: independent clicks for the 2015 left/right touchpads.
++            SDL_strlcat(mapping_string, "paddle1:b11,paddle2:b12,touchpad:b13,misc2:b14,", sizeof(mapping_string));
+         } else if (SDL_IsJoystickSteamDeck(vendor, product)) {
+             // The Steam Deck's built-in controller has QAM, 4 back buttons, L/R trackpads, and L/R capacitive touch sticks
+             SDL_strlcat(mapping_string, "misc1:b11,paddle1:b12,paddle2:b13,paddle3:b14,paddle4:b15,touchpad:b17,misc2:b16,misc3:b19,misc4:b18", sizeof(mapping_string));

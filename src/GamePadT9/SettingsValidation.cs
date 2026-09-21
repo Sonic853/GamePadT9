@@ -9,12 +9,13 @@ internal sealed class SettingsValidation : Form
 {
     private readonly string root;
     private readonly RimeEngine engine;
+    private readonly bool steamOnly;
     private readonly List<string> checks = [];
     internal int Result { get; private set; } = 1;
     protected override bool ShowWithoutActivation => true;
-    internal SettingsValidation(string root, RimeEngine engine)
+    internal SettingsValidation(string root, RimeEngine engine, bool steamOnly = false)
     {
-        this.root = root; this.engine = engine;
+        this.root = root; this.engine = engine; this.steamOnly = steamOnly;
         ShowInTaskbar = false; Opacity = 0; Width = Height = 1;
         Shown += async (_, _) =>
         {
@@ -22,7 +23,7 @@ internal sealed class SettingsValidation : Form
             try { await Run(); Result = 0; }
             catch (Exception ex) { error = ex.ToString(); Console.Error.WriteLine(ex); }
             var report = JsonSerializer.Serialize(new { time = DateTimeOffset.Now, passed = Result == 0, checks, error }, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(Path.Combine(root, "artifacts", "settings-verification.json"), report);
+            File.WriteAllText(Path.Combine(root, "artifacts", steamOnly ? "steam-settings-verification.json" : "settings-verification.json"), report);
             Console.WriteLine(report); Close();
         };
     }
@@ -30,6 +31,8 @@ internal sealed class SettingsValidation : Form
     private async Task Run()
     {
         VerifySvgGlyphs();
+        await SteamTouchpadSettingsValidation.Run(root, Check);
+        if (steamOnly) return;
         await LayoutSettingsValidation.Run(root, Check);
         foreach (var stick in Enum.GetValues<ControlSide>()) foreach (var trigger in Enum.GetValues<ControlSide>())
         {
@@ -276,7 +279,7 @@ internal sealed class SettingsValidation : Form
     private void VerifySvgGlyphs()
     {
         var resources = typeof(ButtonGlyphs).Assembly.GetManifestResourceNames().Where(name => name.StartsWith("GamePadT9.Assets.Steam.")).ToArray();
-        Check(resources.Length == 34 && resources.All(name => name.EndsWith(".svg")), "All 34 runtime glyph resources are SVG, with no PNG fallback");
+        Check(resources.Length == 60 && resources.All(name => name.EndsWith(".svg")), "All 60 runtime glyph resources are SVG, with no PNG fallback");
         using var glyphs = new ButtonGlyphs();
         foreach (var family in Enum.GetValues<GamepadFamily>()) foreach (var scale in new[] { 1f, 1.25f, 1.5f, 2f })
         {

@@ -15,6 +15,9 @@ internal sealed record UserSettings
     public ControlSide Trigger { get; init; } = ControlSide.Right;
     public ControlSide EnglishCaseShoulder { get; init; } = ControlSide.Right;
     public bool EnglishKeepGroup { get; init; }
+    public int Steam2015LeftAngle { get; init; }
+    public int Steam2015RightAngle { get; init; }
+    public bool Steam2015LinkAngles { get; init; }
     public LetterLayout PinyinLayout { get; init; } = LetterLayout.Default;
     public string PinyinCustomOrder { get; init; } = LetterLayouts.DefaultOrder;
     public LetterLayout EnglishLayout { get; init; } = LetterLayout.Default;
@@ -35,6 +38,9 @@ internal sealed record UserSettings
     internal static int Alpha(int percentage) => (percentage * 255 + 50) / 100;
     internal void Validate()
     {
+        if (Steam2015LeftAngle is < -180 or > 180 || Steam2015RightAngle is < -180 or > 180 ||
+            Steam2015LinkAngles && Steam2015LeftAngle != -Steam2015RightAngle)
+            throw new InvalidDataException("触控板角度范围为 -180° 至 180°，同时调整时左右角度应互为相反数。");
         if (!Enum.IsDefined(PinyinLayout) || !Enum.IsDefined(EnglishLayout) || !LetterLayouts.Valid(PinyinCustomOrder) || !LetterLayouts.Valid(EnglishCustomOrder))
             throw new InvalidDataException("四格排序无效：每个位置必须恰好出现一次，不能重复或缺失。");
         if (!Enum.IsDefined(Stick) || !Enum.IsDefined(Trigger) || !Enum.IsDefined(EnglishCaseShoulder) || !Enum.IsDefined(ControllerFamily) ||
@@ -52,6 +58,11 @@ internal sealed record UserSettings
         try
         {
             var settings = JsonSerializer.Deserialize<UserSettings>(File.ReadAllText(path), Json) ?? throw new InvalidDataException("设置文件为空。");
+            // Migrate the earlier same-direction linking while retaining all
+            // other preferences. Linked layouts now mirror around the centre.
+            if (settings.Steam2015LinkAngles && settings.Steam2015LeftAngle == settings.Steam2015RightAngle &&
+                settings.Steam2015LeftAngle is >= -180 and <= 180)
+                settings = settings with { Steam2015RightAngle = -settings.Steam2015LeftAngle };
             settings.Validate(); return settings;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)

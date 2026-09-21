@@ -1,0 +1,39 @@
+<UserControl x:Class="GamePadT9.SteamTouchpadSettings" x:ClassModifier="internal"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:GamePadT9" xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <StackPanel>
+        <TextBlock Text="旧版触控板" Style="{StaticResource PageHeading}"/>
+        <TextBlock Text="调整 Steam Controller 2015 触控板上的布局倾斜。九格选组和四格选字使用同一角度，实体摇杆不受影响。" Style="{StaticResource Description}" Margin="0,0,0,18"/>
+        <ui:Card Style="{StaticResource SettingsCard}"><StackPanel>
+            <Grid Margin="0,0,0,16"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="220"/></Grid.ColumnDefinitions>
+                <TextBlock Text="调整方式" VerticalAlignment="Center"/>
+                <ComboBox x:Name="AdjustmentMode" Grid.Column="1" MinHeight="44" AutomationProperties.Name="触控板角度调整方式">
+                    <ComboBoxItem Content="分别调整"/><ComboBoxItem Content="同时调整"/>
+                </ComboBox>
+            </Grid>
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="24"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="左触控板" HorizontalAlignment="Center" FontWeight="SemiBold"/>
+                    <local:TouchpadLayoutPreview x:Name="LeftPreview" Width="156" Height="156" Margin="0,12"/>
+                    <Slider x:Name="LeftSlider" Minimum="-180" Maximum="180" TickFrequency="1" IsSnapToTickEnabled="True" AutomationProperties.Name="左触控板布局角度"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,12,0,0">
+                        <ui:NumberBox x:Name="LeftValue" Width="118" Minimum="-180" Maximum="180" MaxDecimalPlaces="0" SpinButtonPlacementMode="Compact" ClearButtonEnabled="False" AutomationProperties.Name="左触控板角度数值"/>
+                        <TextBlock Text="°" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="右触控板" HorizontalAlignment="Center" FontWeight="SemiBold"/>
+                    <local:TouchpadLayoutPreview x:Name="RightPreview" Width="156" Height="156" Margin="0,12"/>
+                    <Slider x:Name="RightSlider" Minimum="-180" Maximum="180" TickFrequency="1" IsSnapToTickEnabled="True" AutomationProperties.Name="右触控板布局角度"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,12,0,0">
+                        <ui:NumberBox x:Name="RightValue" Width="118" Minimum="-180" Maximum="180" MaxDecimalPlaces="0" SpinButtonPlacementMode="Compact" ClearButtonEnabled="False" AutomationProperties.Name="右触控板角度数值"/>
+                        <TextBlock Text="°" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+            <TextBlock Text="0° 为原始方向；正数顺时针，负数逆时针。同时调整为镜像旋转：以左侧角度初始化，之后调整任意一侧，另一侧同步为相反角度。" Style="{StaticResource Description}" FontSize="12" Margin="0,20,0,0"/>
+            <ui:Button x:Name="ResetAngles" Content="角度归零" Appearance="Transparent" HorizontalAlignment="Left" Margin="0,10,0,0" Click="Reset"/>
+        </StackPanel></ui:Card>
+        <TextBlock Text="触摸位置优先于同侧摇杆，松手后恢复摇杆。完整按下触控板对应 L3 / R3；左、右背部握把键用于前后翻页。" Style="{StaticResource Description}" FontSize="12"/>
+    </StackPanel>
+</UserControl>

@@ -27,7 +27,9 @@ internal static class ControllerValidation
                     $"{family}: selected SDL gamepad starts with neutral buttons and released triggers");
                 var controller = new Controller(); controller.Update(neutral, 0);
                 var buttonActions = new (int Button, PadAction Action)[] { (0, PadAction.Confirm), (2, PadAction.Backspace), (3, PadAction.SwitchMode),
-                    (9, PadAction.Previous), (10, PadAction.Next), (13, PadAction.PagePrevious), (14, PadAction.PageNext) };
+                    (9, PadAction.Previous), (10, PadAction.Next),
+                    (family == GamepadFamily.SteamController2015 ? 17 : 13, PadAction.PagePrevious),
+                    (family == GamepadFamily.SteamController2015 ? 16 : 14, PadAction.PageNext) };
                 long time = 10;
                 foreach (var mapping in buttonActions)
                 {
@@ -48,6 +50,7 @@ internal static class ControllerValidation
                 for (var region = 0; region < 9; region++)
                 {
                     pad.Axis(2, (short)((region % 3 - 1) * 25000)); pad.Axis(3, (short)((region / 3 - 1) * 25000));
+                    if (family == GamepadFamily.SteamController2015) pad.Touch(1, true, (region % 3) / 2f, (region / 3) / 2f);
                     pad.Axis(5, short.MinValue); devices.Poll(device.Id, out var state); controller.Update(state, time++);
                     pad.Axis(5, short.MaxValue); devices.Poll(device.Id, out state);
                     var action = controller.Update(state, time++).Single();
@@ -120,7 +123,7 @@ internal static class ControllerValidation
         return error == null ? 0 : 1;
     }
 
-    private sealed class VirtualPad : IDisposable
+    internal sealed class VirtualPad : IDisposable
     {
         internal uint Id { get; }
         private nint joystick;
@@ -128,14 +131,17 @@ internal static class ControllerValidation
         internal VirtualPad(GamepadFamily family)
         {
             var name = Marshal.StringToCoTaskMemUTF8("GamePad T9 test " + family);
+            var touchpads = Marshal.AllocHGlobal(16);
+            for (var offset = 0; offset < 16; offset += 2) Marshal.WriteInt16(touchpads, offset, (short)(offset % 8 == 0 ? 1 : 0));
             try
             {
                 var desc = new VirtualDesc
                 {
                     Version = (uint)Marshal.SizeOf<VirtualDesc>(), Type = 1,
-                    Vendor = family == GamepadFamily.Xbox ? (ushort)0x045e : (ushort)0x054c,
-                    Product = family switch { GamepadFamily.PS4 => 0x05c4, GamepadFamily.PS5 => 0x0ce6, _ => 0x02ea },
-                    Axes = 6, Buttons = 15, ButtonMask = 0x7fff, AxisMask = 0x3f, Name = name
+                    Vendor = family switch { GamepadFamily.SteamController or GamepadFamily.SteamController2015 => 0x28de, GamepadFamily.Xbox => 0x045e, _ => 0x054c },
+                    Product = family switch { GamepadFamily.SteamController => 0x1302, GamepadFamily.SteamController2015 => 0x1102, GamepadFamily.PS4 => 0x05c4, GamepadFamily.PS5 => 0x0ce6, _ => 0x02ea },
+                    Axes = 6, Buttons = 22, ButtonMask = 0x3fffff, AxisMask = 0x3f, Name = name,
+                    TouchpadsCount = (ushort)(family is GamepadFamily.SteamController or GamepadFamily.SteamController2015 ? 2 : 1), Touchpads = touchpads
                 };
                 Id = SDL_AttachVirtualJoystick(in desc);
                 if (Id == 0) throw new Exception(Sdl.Error);
@@ -143,10 +149,12 @@ internal static class ControllerValidation
                 Axis(4, short.MinValue); Axis(5, short.MinValue);
             }
             catch { if (Id != 0) SDL_DetachVirtualJoystick(Id); throw; }
-            finally { Marshal.FreeCoTaskMem(name); }
+            finally { Marshal.FreeCoTaskMem(name); Marshal.FreeHGlobal(touchpads); }
         }
         internal void Button(int index, bool down) { if (!SDL_SetJoystickVirtualButton(joystick, index, down)) throw new Exception(Sdl.Error); }
         internal void Axis(int index, short value) { if (!SDL_SetJoystickVirtualAxis(joystick, index, value)) throw new Exception(Sdl.Error); }
+        internal void Touch(int index, bool down, float x = 0.5f, float y = 0.5f)
+        { if (!SDL_SetJoystickVirtualTouchpad(joystick, index, 0, down, x, y, down ? 0.5f : 0)) throw new Exception(Sdl.Error); }
         internal void Disconnect() { if (attached) { if (!SDL_DetachVirtualJoystick(Id)) throw new Exception(Sdl.Error); attached = false; } }
         public void Dispose() { Disconnect(); if (joystick != 0) { SDL_CloseJoystick(joystick); joystick = 0; } }
     }
@@ -164,4 +172,5 @@ internal static class ControllerValidation
     [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] private static extern void SDL_CloseJoystick(nint joystick);
     [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] private static extern bool SDL_SetJoystickVirtualButton(nint joystick, int button, [MarshalAs(UnmanagedType.I1)] bool down);
     [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] private static extern bool SDL_SetJoystickVirtualAxis(nint joystick, int axis, short value);
+    [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] private static extern bool SDL_SetJoystickVirtualTouchpad(nint joystick, int touchpad, int finger, [MarshalAs(UnmanagedType.I1)] bool down, float x, float y, float pressure);
 }

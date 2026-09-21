@@ -2,7 +2,7 @@
 
 <img width="780" height="520" alt="image" src="https://github.com/user-attachments/assets/4588694a-ac49-4ee1-9f1f-b43cd26c3a17" />
 
-Windows Xbox、PS4（DualShock 4）和 PS5（DualSense）手柄九键输入程序。启动 C# 主程序，在目标文本框同时按下两枚菜单键（Xbox：**View + Menu**；PS4：**Share + Options**；PS5：**Create + Options**）。直接输入模式记录原输入法并优先切换到 **GamePad T9**；该条目不可用时切换到 **小白 T9 输入法**。关闭手柄输入后恢复原输入法。也可按程序配置失焦输入或外部输入框。
+Windows Xbox、PS4（DualShock 4）、PS5（DualSense）和 Steam Controller（2015 / Triton）手柄九键输入程序。启动 C# 主程序，在目标文本框同时按下两枚菜单键（Xbox / 新版 Steam Controller：**View + Menu**；旧版 Steam Controller：**左箭头 + 右箭头菜单键**；PS4：**Share + Options**；PS5：**Create + Options**）。直接输入模式记录原输入法并优先切换到 **GamePad T9**；该条目不可用时切换到 **小白 T9 输入法**。关闭手柄输入后恢复原输入法。也可按程序配置失焦输入或外部输入框。
 
 主程序、手柄控制、九宫格和候选面板使用 **C#**。小白联动扩展通过标准 **C++ TSF 接口**加载本机原版小白 DLL，沿用其名称和标识，不依赖固定版本的内部 IPC。项目也提供“GamePad T9”独立输入法条目；两种方式互斥，均支持 x64 和 x86 目标程序。
 
@@ -45,6 +45,31 @@ git lfs pull
 ```
 
 本地需 .NET 10 SDK、Visual C++ 构建工具和 Windows SDK、7-Zip。缓存维护方法及来源见 [data/MIXED-CACHE.md](data/MIXED-CACHE.md)。图形界面、输入法切换及真实手柄测试仍需在配置好的交互式 Windows 环境中运行，CI 打包通过不代表这些交互检查已执行。
+
+## 旧版 Steam Controller（2015）
+
+支持通过 USB、无线接收器或 BLE 连接的旧版手柄。设备列表显示 `Steam Controller 2015`，使用 Steam 官方旧版 SVG 图标。左、右触控板分别作为左、右摇杆使用，触摸位置直接选择九格或四格；触摸优先于实体左摇杆，松手后恢复实体摇杆，右触控板松手即回中。完整按压触控板对应 L3 / R3，扳机沿用已有选择设置。
+
+打开 **设置 → 旧版触控板** 调整布局倾斜：默认为左右各 0°，范围为 -180° 至 180°，正数顺时针、负数逆时针。**分别调整** 可设置不同角度；**同时调整** 为镜像旋转，选择时以左侧角度初始化右侧的相反角度，之后修改任意一侧，另一侧都会反向同步。例如左侧 +15° 对应右侧 -15°。预览显示触控板上的布局方向，保存后生效，取消保留原设置。早期保存的同向联动设置会按左侧角度自动转换为镜像，保留其它偏好。角度仅作用于旧版触控板；九格、四格和左右互换后的职责都使用该触控板的角度，实体摇杆及其它型号不受影响。
+
+旧版左触控板兼作方向键。为避免选字或按压时误翻页，使用 **左 / 右背部握把键** 前后翻页，界面显示对应图标。
+
+旧版支持使用项目修改版 SDL 3.4.16，补齐原驱动未公开的双触控板坐标、触摸状态与独立按压。主程序仍为 C#，无需安装 Windows 驱动；正常构建及 Windows Actions 使用仓库中的 DLL。来源、补丁、固定源码校验及重建命令见 [SDL 构建说明](third_party/SDL3/BUILD.md)。真实设备测试须先退出其它 GamePad T9 实例再执行采样。
+
+2026-09-21 已用 USB 连接的旧版实机（VID `28de` / PID `1102`）完成采样：左右触控板均覆盖九个区域，按压与松手可识别；A/B/X/Y、两枚菜单键、左右肩键、左右扳机和背部握把键均有响应。实体左摇杆单独按压可识别为 L3，未触发触控板按压。当前映射无需调整；无线接收器和 BLE 尚未进行实机验证。人工采样应先确认程序已在运行，再开始操作，避免漏掉采样启动前的按键。
+
+## 新版 Steam Controller
+
+支持 Triton 手柄及其无线接收器。设置中的已连接手柄列表会显示 `Steam Controller`，九宫格、设置和外部输入框使用项目内 Steam 官方 SVG 图标。
+
+- 左触控板等同左摇杆，右触控板等同右摇杆；按触摸的绝对位置选区，中心为回中，左上至右下为 `123 / 456 / 789`。
+- 触摸时覆盖同侧实体摇杆，包括触摸中心；松手后恢复实体摇杆的当前位置。实体摇杆保持静止时，松手即回中，不沿用上一次触摸位置。
+- 左右触控板按压分别等同 L3 / R3。数字模式下按压所选侧触控板输入 0，扳机输入选区数字；中文模式下按压仍选整组。英文四格和左侧字母优先规则沿用摇杆逻辑。
+- 设置中交换左右摇杆后，触控板跟随同侧设置交换职责。PS4 / PS5 的单触控板不参与这套映射。
+
+使用现有 SDL 3.4.16 的 [Triton HIDAPI 驱动](https://github.com/libsdl-org/SDL/blob/release-3.4.16/src/joystick/hidapi/SDL_hidapi_steam_triton.c) 和 [触控板接口](https://wiki.libsdl.org/SDL3/SDL_GetGamepadTouchpadFinger)，无需通过 Steam Input 模拟摇杆。Steam 中已有的桌面或游戏配置仍由 Steam 管理。
+
+排查设备时，可运行 `GamePadT9.exe --probe-controllers 10` 采样 10 秒（支持 1–60 秒），报告识别型号、触控板数量、触摸区域、按压及松手状态。该命令不加载 Rime、不启动输入会话。`--verify-gamepads` 使用进程内 SDL 虚拟设备验证触控板映射，也无需安装输入法。
 
 ## 开始使用
 
@@ -346,7 +371,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1
 
 默认 `build.ps1` 构建标准 TSF 扩展，产物位置记录在 `artifacts/proxy-<架构>-path.txt`；旧 `build-xiaobai.ps1` 仅作为历史源码方案保留，可用 `-LegacyXiaobaiSource` 构建，不随便携包分发。输入法切换辅助组件位置记录在 `artifacts/input-method-<架构>-path.txt`，无需注册。只改 C# 时可运行 `scripts/build.ps1 -SkipXiaobai -SkipInputMethodControl`。
 
-项目包含固定版本 SDL 3.4.16 的 x86 DLL，构建时自动复制到主程序旁边。Steam 图标按 `SteamGlyphs.props` 只嵌入当前界面使用的 34 个 SVG，由 SVG.NET 3.4.8 绘制；首次构建需要从 NuGet 还原 `Svg` 及其 ExCSS 依赖。升级本次手柄和图标功能只需重新构建 C# 主程序，无需重新注册输入法组件。
+项目包含带旧版触控板补丁的 SDL 3.4.16 x86 DLL，构建时自动复制到主程序旁边。Steam 图标按 `SteamGlyphs.props` 只嵌入当前界面使用的 60 个 SVG，由 SVG.NET 3.4.8 绘制；首次构建需要从 NuGet 还原 `Svg` 及其 ExCSS 依赖。手柄更新须使用本次附带的 SDL 库；单文件便携包会一并内嵌，无需重新注册输入法组件。
 
 主程序构建会自动调用 `scripts/build-backdrop.ps1`，增量生成 x86 `GamePadT9.Backdrop.dll`。该小型 C++20 组件使用 Windows SDK 中的 C++/WinRT、Composition 和 Direct2D，需 Visual C++ 构建工具及对应 Windows SDK；不依赖 Win2D 或 Windows App SDK。主程序与界面逻辑仍为 C#，发布时模糊组件合并进 EXE，无需注册。`-SkipXiaobai -SkipInputMethodControl` 仍会更新这个界面组件。
 
@@ -488,7 +513,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Backspace 
 | `src/GamePadT9/Controller.cs` | 所选摇杆分区、边沿、长按和连发 |
 | `src/GamePadT9/GamepadDevices.cs` | SDL3 读取、Xbox / PS 识别、设备选择和热插拔 |
 | `src/GamePadT9/ButtonGlyphs.cs` | Steam SVG 加载、缓存及矢量按键提示绘制 |
-| `src/GamePadT9/SteamGlyphs.props` | 界面使用的 34 个 Steam SVG 嵌入资源清单 |
+| `src/GamePadT9/SteamGlyphs.props` | 界面使用的 60 个 Steam SVG 嵌入资源清单 |
 | `src/GamePadT9/ControllerValidation.cs` | 通过 SDL 虚拟设备验证多手柄读取与选择 |
 | `src/GamePadT9/InputSession.cs` | 模式、候选、焦点绑定与提交协调 |
 | `src/GamePadT9/FocusedInputSession.cs` | 外部编辑栏、目标焦点切换、完成及草稿保留 |

@@ -1,6 +1,29 @@
 <Project>
   <!-- One original SVG per glyph; duplicate model copies stay out of the assembly. -->
   <ItemGroup>
+    <SteamGlyph Include="Assets\Steam\SteamController\2015\light\svg\sc_lb.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\2015\light\svg\sc_rb.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\2015\light\svg\sc_lt.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\2015\light\svg\sc_rt.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\2015\light\svg\sc_button_l_arrow.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\2015\light\svg\sc_button_r_arrow.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\2015\light\svg\sc_dpad.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\2015\light\svg\sc_touchpad.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\2015\light\svg\sc_dpad_click.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\2015\light\svg\sc_touchpad_click.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\2015\light\svg\sc_lg.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\2015\light\svg\sc_rg.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\Current\light\svg\shared_button_*.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\Current\light\svg\sc_l1.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\Current\light\svg\sc_r1.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\Current\light\svg\sc_l2.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\Current\light\svg\sc_r2.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\Current\light\svg\sd_button_view.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\Current\light\svg\sd_button_menu.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\Current\light\svg\sd_ltrackpad.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\Current\light\svg\sd_rtrackpad.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\Current\light\svg\sd_ltrackpad_click.svg" />
+    <SteamGlyph Include="Assets\Steam\SteamController\Current\light\svg\sd_rtrackpad_click.svg" />
     <SteamGlyph Include="Assets\Steam\Shared\light\svg\shared_color_button_*.svg" />
     <SteamGlyph Include="Assets\Steam\Shared\light\svg\shared_lstick.svg" />
     <SteamGlyph Include="Assets\Steam\Shared\light\svg\shared_rstick.svg" />

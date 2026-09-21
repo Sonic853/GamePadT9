@@ -6,8 +6,8 @@ using System.Text.Json.Serialization;
 namespace GamePadT9;
 
 [JsonConverter(typeof(JsonStringEnumConverter<GamepadFamily>))]
-internal enum GamepadFamily { Xbox, PS4, PS5 }
-internal sealed record GamepadDevice(uint Instance, string Id, string Name, GamepadFamily Family);
+internal enum GamepadFamily { Xbox, PS4, PS5, SteamController, SteamController2015 }
+internal sealed record GamepadDevice(uint Instance, string Id, string Name, GamepadFamily Family, int Touchpads = 0, ushort Vendor = 0, ushort Product = 0);
 
 // One SDL owner on the WinForms thread. No SDL window or Steam process is required.
 internal sealed class GamepadDevices : IDisposable
@@ -15,6 +15,12 @@ internal sealed class GamepadDevices : IDisposable
     private readonly Dictionary<uint, (nint Handle, GamepadDevice Device)> opened = [];
     private long nextScan;
     private bool disposed;
+    private int leftAngle, rightAngle;
+    internal void Configure(UserSettings settings)
+    {
+        settings.Validate();
+        leftAngle = settings.Steam2015LeftAngle; rightAngle = settings.Steam2015RightAngle;
+    }
     internal IReadOnlyList<GamepadDevice> Connected { get; private set; } = [];
     internal GamepadDevice? Active { get; private set; }
     internal string? Error { get; private set; }
@@ -24,6 +30,7 @@ internal sealed class GamepadDevices : IDisposable
         Sdl.SDL_SetHint("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
         Sdl.SDL_SetHint("SDL_JOYSTICK_HIDAPI_PS4", "1");
         Sdl.SDL_SetHint("SDL_JOYSTICK_HIDAPI_PS5", "1");
+        Sdl.SDL_SetHint("SDL_JOYSTICK_HIDAPI_STEAM", "1");
         if (!Sdl.SDL_InitSubSystem(Sdl.GamepadSubsystem))
             throw new InvalidOperationException("无法初始化手柄：" + Sdl.Error);
         Sdl.SDL_SetGamepadEventsEnabled(false);
@@ -42,9 +49,14 @@ internal sealed class GamepadDevices : IDisposable
         }
         Active = Select(Connected, preferred, Active);
         if (Active == null) return false;
+        if (Active.Family == GamepadFamily.SteamController2015 && Active.Touchpads < 2)
+        {
+            Error = "旧版 Steam Controller 需要本版本附带的 SDL3 库，请使用完整更新包。";
+            Active = null; return false;
+        }
         var handle = opened[Active.Instance].Handle;
         if (!Sdl.SDL_GamepadConnected(handle)) { Active = null; return false; }
-        state = Read(handle);
+        state = Read(handle, Active);
         return true;
     }
 
@@ -73,10 +85,12 @@ internal sealed class GamepadDevices : IDisposable
                 try
                 {
                     var type = Sdl.SDL_GetRealGamepadType(handle);
-                    var family = type switch { 5 => GamepadFamily.PS4, 6 => GamepadFamily.PS5, _ => GamepadFamily.Xbox };
                     var name = Sdl.String(Sdl.SDL_GetGamepadName(handle));
-                    if (name.Length == 0) name = family.ToString() + " 手柄";
                     var vendor = Sdl.SDL_GetGamepadVendor(handle); var product = Sdl.SDL_GetGamepadProduct(handle);
+                    var touchpads = Sdl.SDL_GetNumGamepadTouchpads(handle);
+                    var family = Family(type, vendor, product, touchpads);
+                    if (family == GamepadFamily.SteamController2015 && name == "Steam Controller") name = "Steam Controller 2015";
+                    if (name.Length == 0) name = family.ToString() + " 手柄";
                     var serial = Sdl.String(Sdl.SDL_GetGamepadSerial(handle));
                     var path = Sdl.String(Sdl.SDL_GetGamepadPath(handle));
                     // Serial survives USB/Bluetooth changes when provided. Otherwise retain the device path / XInput slot.
@@ -85,7 +99,7 @@ internal sealed class GamepadDevices : IDisposable
                     var stableId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
                     // Identical devices without a path/serial must still be individually selectable this session.
                     if (opened.Values.Any(x => x.Device.Id == stableId)) stableId += ":" + id;
-                    opened.Add(id, (handle, new(id, stableId, name, family)));
+                    opened.Add(id, (handle, new(id, stableId, name, family, touchpads, vendor, product)));
                 }
                 catch { Sdl.SDL_CloseGamepad(handle); throw; }
             }
@@ -96,17 +110,62 @@ internal sealed class GamepadDevices : IDisposable
 
     private static readonly Buttons[] ButtonMap =
         [Buttons.A, Buttons.B, Buttons.X, Buttons.Y, Buttons.View, 0, Buttons.Menu, Buttons.L3, Buttons.R3, Buttons.LB, Buttons.RB, 0, 0, Buttons.Left, Buttons.Right];
-    private static Gamepad Read(nint handle)
+    internal static GamepadFamily Family(int type, ushort vendor, ushort product, int touchpads) =>
+        vendor == 0x28de && product is 0x1102 or 0x1105 or 0x1106 or 0x1142 ? GamepadFamily.SteamController2015 :
+        vendor == 0x28de && product is 0x1302 or 0x1304 or 0x1305 && touchpads >= 2 ? GamepadFamily.SteamController :
+        type switch { 5 => GamepadFamily.PS4, 6 => GamepadFamily.PS5, _ => GamepadFamily.Xbox };
+
+    private Gamepad Read(nint handle, GamepadDevice device)
     {
         Buttons buttons = 0;
         for (var i = 0; i < ButtonMap.Length; i++) if (Sdl.SDL_GetGamepadButton(handle, i)) buttons |= ButtonMap[i];
-        return new()
+        var state = new Gamepad
         {
             Buttons = buttons, LX = Sdl.SDL_GetGamepadAxis(handle, 0), LY = InvertY(Sdl.SDL_GetGamepadAxis(handle, 1)),
             RX = Sdl.SDL_GetGamepadAxis(handle, 2), RY = InvertY(Sdl.SDL_GetGamepadAxis(handle, 3)),
             LT = Trigger(Sdl.SDL_GetGamepadAxis(handle, 4)), RT = Trigger(Sdl.SDL_GetGamepadAxis(handle, 5))
         };
+        if (device.Family == GamepadFamily.SteamController2015)
+        {
+            // The legacy driver's right axes are a transformed pad, not a stick.
+            // Ignore them so finger release cannot retain the last touched position.
+            state.RX = state.RY = 0;
+            state.Buttons &= ~(Buttons.Left | Buttons.Right);
+            if (Sdl.SDL_GetGamepadButton(handle, 17)) state.Buttons |= Buttons.Left;
+            if (Sdl.SDL_GetGamepadButton(handle, 16)) state.Buttons |= Buttons.Right;
+        }
+        if (device.Family is GamepadFamily.SteamController or GamepadFamily.SteamController2015)
+        {
+            var legacy = device.Family == GamepadFamily.SteamController2015;
+            ApplyTouchpad(handle, 0, legacy ? leftAngle : 0, ref state);
+            ApplyTouchpad(handle, 1, legacy ? rightAngle : 0, ref state);
+            // SDL 3.4 Triton mapping: TOUCHPAD = left pad, MISC2 = right pad.
+            if (Sdl.SDL_GetGamepadButton(handle, Sdl.TouchpadButton)) state.TouchpadButtons |= Buttons.L3;
+            if (Sdl.SDL_GetGamepadButton(handle, Sdl.Misc2Button)) state.TouchpadButtons |= Buttons.R3;
+            state.Buttons |= state.TouchpadButtons;
+        }
+        return state;
     }
+    private static void ApplyTouchpad(nint handle, int index, int angle, ref Gamepad state)
+    {
+        if (!Sdl.SDL_GetGamepadTouchpadFinger(handle, index, 0, out var down, out var x, out var y, out _) ||
+            !down || !float.IsFinite(x) || !float.IsFinite(y)) return;
+        // Absolute pad position, with the same centre, orientation and dead zones
+        // as the corresponding stick. A centred touch still overrides the stick.
+        var position = RotateTouch(TouchAxis(x), TouchAxis(1 - y), angle);
+        if (index == 0) { state.LX = position.X; state.LY = position.Y; state.LeftTouch = true; }
+        else { state.RX = position.X; state.RY = position.Y; state.RightTouch = true; }
+    }
+    // A positive angle turns the layout clockwise on the physical pad. Transform
+    // the finger back into layout space (counterclockwise, in Y-up coordinates).
+    internal static (short X, short Y) RotateTouch(short x, short y, int angle)
+    {
+        var radians = angle * Math.PI / 180;
+        var c = Math.Cos(radians); var s = Math.Sin(radians);
+        return ((short)Math.Clamp(Math.Round(x * c - y * s), short.MinValue, short.MaxValue),
+            (short)Math.Clamp(Math.Round(x * s + y * c), short.MinValue, short.MaxValue));
+    }
+    internal static short TouchAxis(float value) => (short)Math.Clamp((value - 0.5f) * 65536f, short.MinValue, short.MaxValue);
     internal static short InvertY(short value) => (short)Math.Clamp(-(int)value, short.MinValue, short.MaxValue);
     internal static byte Trigger(short value) => (byte)((Math.Max(0, (int)value) * 255 + 16383) / 32767);
     public void Dispose()
@@ -122,6 +181,7 @@ internal sealed class GamepadDevices : IDisposable
 internal static class Sdl
 {
     internal const uint GamepadSubsystem = 0x2000;
+    internal const int TouchpadButton = 20, Misc2Button = 21;
     internal static string String(nint value) => Marshal.PtrToStringUTF8(value) ?? "";
     internal static string Error => String(SDL_GetError());
     [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] private static extern nint SDL_GetError();
@@ -145,4 +205,6 @@ internal static class Sdl
     [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] internal static extern int SDL_GetRealGamepadType(nint gamepad);
     [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] internal static extern bool SDL_GetGamepadButton(nint gamepad, int button);
     [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] internal static extern short SDL_GetGamepadAxis(nint gamepad, int axis);
+    [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] internal static extern int SDL_GetNumGamepadTouchpads(nint gamepad);
+    [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] internal static extern bool SDL_GetGamepadTouchpadFinger(nint gamepad, int touchpad, int finger, [MarshalAs(UnmanagedType.I1)] out bool down, out float x, out float y, out float pressure);
 }

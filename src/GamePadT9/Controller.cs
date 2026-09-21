@@ -10,6 +10,8 @@ internal struct Gamepad
     public Buttons Buttons;
     public byte LT, RT;
     public short LX, LY, RX, RY;
+    public bool LeftTouch, RightTouch;
+    public Buttons TouchpadButtons;
 }
 internal enum PadAction { Toggle, SwitchMode, Region, Confirm, Cancel, Disable, Backspace, Previous, Next, PagePrevious, PageNext, Complete }
 internal readonly record struct PadEvent(PadAction Action, int Region = 4, bool StickClick = false, int Detail = -1, bool IsRepeat = false);
@@ -132,7 +134,9 @@ internal sealed class Controller(EnglishSelection? english = null)
             else if (PressOrRepeat(Buttons.RB)) events.Add(new(PadAction.Next, IsRepeat: isRepeat));
             else if (Down(Buttons.Left)) events.Add(new(PadAction.PagePrevious));
             else if (Down(Buttons.Right)) events.Add(new(PadAction.PageNext));
-            else if (triggerDown || Down(stickButton)) events.Add(new(PadAction.Region, Down(stickButton) ? stableRegion : Region, Down(stickButton), Down(stickButton) && !englishEnabled ? -1 : Detail));
+            else if (triggerDown || Down(stickButton)) events.Add(new(PadAction.Region,
+                Down(stickButton) && (pad.TouchpadButtons & stickButton) == 0 ? stableRegion : Region,
+                Down(stickButton), Down(stickButton) && !englishEnabled ? -1 : Detail));
         }
         previous = pad; chordHeld = chord; return events;
     }

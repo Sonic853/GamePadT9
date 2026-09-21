@@ -19,6 +19,9 @@
     <Content Include="..\..\third_party\SDL3\win-x86\SDL3.dll" Link="SDL3.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\artifacts\backdrop-native-x86\GamePadT9.Backdrop.dll" Link="GamePadT9.Backdrop.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\third_party\SDL3\LICENSE.txt" Link="licenses\SDL3.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\third_party\SDL3\BUILD.md" Link="licenses\SDL3-BUILD.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\third_party\SDL3\steam-controller-2015.patch" Link="licenses\SDL3-steam-controller-2015.patch" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\third_party\SDL3\build-info.json" Link="licenses\SDL3-build-info.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\third_party\SVG.NET\LICENSE.txt" Link="licenses\SVG.NET.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\third_party\ExCSS\LICENSE.txt" Link="licenses\ExCSS.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

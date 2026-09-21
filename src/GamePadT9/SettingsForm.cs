@@ -29,6 +29,8 @@ internal sealed partial class SettingsForm : PanelWindow
         Stick = (ControlSide)StickSelector.SelectedIndex, Trigger = (ControlSide)TriggerSelector.SelectedIndex,
         EnglishCaseShoulder = (ControlSide)EnglishCaseSelector.SelectedIndex,
         EnglishKeepGroup = KeepEnglishGroup.IsChecked == true,
+        Steam2015LeftAngle = Steam2015Page.LeftAngle, Steam2015RightAngle = Steam2015Page.RightAngle,
+        Steam2015LinkAngles = Steam2015Page.Linked,
         PinyinLayout = PinyinLayoutPicker.SelectedLayout, PinyinCustomOrder = PinyinLayoutPicker.CustomOrder,
         EnglishLayout = EnglishLayoutPicker.SelectedLayout, EnglishCustomOrder = EnglishLayoutPicker.CustomOrder,
         EnglishUsePinyinLayout = ReusePinyinLayout.IsChecked == true,
@@ -86,6 +88,7 @@ internal sealed partial class SettingsForm : PanelWindow
             StickSelector.SelectedIndex = (int)value.Stick; TriggerSelector.SelectedIndex = (int)value.Trigger;
             EnglishCaseSelector.SelectedIndex = (int)value.EnglishCaseShoulder;
             KeepEnglishGroup.IsChecked = value.EnglishKeepGroup;
+            Steam2015Page.SetValue(value);
             PinyinLayoutPicker.SetValue(value.PinyinLayout, value.PinyinCustomOrder);
             EnglishLayoutPicker.SetValue(value.EnglishLayout, value.EnglishCustomOrder);
             ReusePinyinLayout.IsChecked = value.EnglishUsePinyinLayout;
@@ -140,6 +143,8 @@ internal sealed partial class SettingsForm : PanelWindow
             Selection.Id != null && !connected().Any(p => p.Id == Selection.Id) ? "所选手柄未连接，等待重新连接。" :
             count == 0 ? "尚未连接手柄，请通过 USB 或蓝牙连接。" : $"已连接 {count} 个手柄，设备列表会自动更新。";
         DeviceBadge.Text = count == 0 ? "等待连接" : $"{count} 个已连接";
+        if (error == null && count > 0 && Family is GamepadFamily.SteamController or GamepadFamily.SteamController2015)
+            DeviceStatus.Text += "\n左右触控板沿用对应摇杆设置；触摸优先，松手恢复摇杆，按压对应 L3 / R3。";
     }
     private void Navigate(object sender, SelectionChangedEventArgs e)
     { if (InputPage != null && ReferenceEquals(e.OriginalSource, SettingsNavigation)) ShowPage(SettingsNavigation.SelectedIndex); }
@@ -149,6 +154,7 @@ internal sealed partial class SettingsForm : PanelWindow
         AppearancePage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         ComponentPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
         LayoutPage.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
+        Steam2015Page.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
         SettingsNavigation.SelectedIndex = index;
         if (index == 2 && !operating) RefreshComponents();
     }

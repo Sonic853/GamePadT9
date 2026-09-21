@@ -14,6 +14,9 @@ internal static class Program
         {
             Console.OutputEncoding = new UTF8Encoding(false);
             Console.InputEncoding = new UTF8Encoding(false);
+            if (args.Length is 1 or 2 && args[0] == "--probe-controllers")
+                return GamepadDiagnostics.Run(args.Length == 2 ? int.Parse(args[1]) : 3);
+            if (args.Length == 1 && args[0] == "--verify-gamepads") return SteamControllerValidation.Run();
             if (args.Length == 1 && args[0] is "--register" or "--unregister" or "--activate")
                 throw new InvalidOperationException("请使用 View + Menu 开启输入并自动切换输入法。联动组件使用 scripts/install-xiaobai.ps1；独立条目使用 scripts/register-standalone.ps1。");
             System.Windows.Forms.Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
@@ -75,9 +78,9 @@ internal static class Program
                 System.Windows.Forms.Application.Run(verification);
                 return verification.Result;
             }
-            if (args.Contains("--verify-settings"))
+            if (args.Contains("--verify-settings") || args.Contains("--verify-steam-settings"))
             {
-                using var verification = new SettingsValidation(root, engine);
+                using var verification = new SettingsValidation(root, engine, args.Contains("--verify-steam-settings"));
                 System.Windows.Forms.Application.Run(verification);
                 return verification.Result;
             }

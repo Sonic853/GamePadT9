@@ -46,7 +46,7 @@ internal sealed class GamePadApplication : ApplicationContext
                 BundledRuntime.RequireInputComponent(behavior, new IntegrationInstaller(root).State());
             return (behavior, window, path ?? $"process:{window.Process}");
         };
-        controller.Configure(preferences);
+        controller.Configure(preferences); devices.Configure(preferences);
         overlay.SettingsRequested += async () => await OpenSettings();
         var menu = new ContextMenuStrip();
         toggle = new("开启输入", null, async (_, _) => await ToggleFromTray());
@@ -75,7 +75,7 @@ internal sealed class GamePadApplication : ApplicationContext
             var form = new SettingsForm(preferences, value =>
             {
                 value.Save(root); preferences = value;
-                controller.Reset(); controller.Configure(value); overlay.ApplySettings(value);
+                controller.Reset(); controller.Configure(value); devices.Configure(value); overlay.ApplySettings(value);
             }, () => devices.Connected, () => devices.Error, new IntegrationInstaller(root));
             form.ProgramsRequested += async () => await OpenProfiles();
             settingsForm = form;

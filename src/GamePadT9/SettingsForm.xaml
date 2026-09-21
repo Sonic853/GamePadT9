@@ -22,6 +22,7 @@
                         <ListBoxItem><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Color24" Margin="0,0,12,0"/><TextBlock Text="面板外观"/></StackPanel></ListBoxItem>
                         <ListBoxItem><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Keyboard24" Margin="0,0,12,0"/><TextBlock Text="输入法组件"/></StackPanel></ListBoxItem>
                         <ListBoxItem><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Apps24" Margin="0,0,12,0"/><TextBlock Text="四格排序"/></StackPanel></ListBoxItem>
+                        <ListBoxItem><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="XboxController24" Margin="0,0,12,0"/><TextBlock Text="旧版触控板"/></StackPanel></ListBoxItem>
                     </ListBox>
                 </DockPanel>
             </Border>
@@ -67,6 +68,7 @@
                                 <TextBlock Text="设置窗口打开期间，手柄输入暂停。" Style="{StaticResource Description}" FontSize="12" Margin="0,12,0,0"/>
                             </StackPanel></ui:Card>
                         </StackPanel>
+                        <local:SteamTouchpadSettings x:Name="Steam2015Page" Visibility="Collapsed"/>
                         <StackPanel x:Name="LayoutPage" Visibility="Collapsed">
                             <TextBlock Text="四格排序" Style="{StaticResource PageHeading}"/>
                             <TextBlock Text="点击预览选择排序，四周绿色边框表示已选中。符号格保持原来的三分区。" Style="{StaticResource Description}" Margin="0,0,0,18"/>
