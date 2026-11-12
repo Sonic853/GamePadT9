@@ -18,7 +18,7 @@ Windows Xbox、PS4（DualShock 4）、PS5（DualSense）和 Steam Controller（2
 
 ### 独立运行版（无需安装小白 T9）
 
-运行 `scripts/package.ps1 -Independent` 可额外生成 `GamePadT9-Portable-Independent-Windows-x64-NoRuntime-<时间>.zip`，内置官方最新稳定版 **Rime 1.17.0**（2026-09-10 核对）、公开发行词库及匹配的混合索引。主程序仍为 C#，仍需目标电脑的 .NET 10 桌面运行时 x86。
+运行 `scripts/package.ps1 -Independent` 可额外生成 `GamePadT9-Portable-Independent-Windows-x64-NoRuntime-<时间>.zip`，内置官方最新稳定版 **Rime 1.17.0**（2026-11-12 核对）、公开发行词库及匹配的混合索引。主程序仍为 C#，仍需目标电脑的 .NET 10 桌面运行时 x86。
 
 独立版没有输入法组件也能启动，外部输入框默认“完成输入后填入至目标程序”，不强制打开注册界面。完成时检测 GamePad T9 注册或小白注入状态；两者均未启用则复制到剪贴板、关闭输入并通过托盘提示手动粘贴。仅安装原版小白不等于已注入。已有组件时仍尝试填入目标；目标不支持、焦点变化或提交失败时保留草稿。手柄组词始终使用内置引擎与词库，不受小白更新、卸载或 `runtime-location.json` 影响。已保存的程序配置保留原值，临时复制回退不改写完成方式。
 
@@ -26,15 +26,19 @@ Windows Xbox、PS4（DualShock 4）、PS5（DualSense）和 Steam Controller（2
 
 详见 [独立版使用说明](PORTABLE-INDEPENDENT.md) 和 [内置数据与构建说明](data/BUNDLED-RUNTIME.md)。两类包的路径分别记录在 `artifacts/portable-independent-archive-path.txt` 与 `artifacts/portable-xiaobai-archive-path.txt`。
 
-## GitHub Actions 生成便携包
+## GitHub Actions 手动构建与发布
 
-[Build portable (Windows)](.github/workflows/portable.yml) 使用 `windows-2025` runner，在推送至 `master` / `main`、推送 `v*` 标签或向主分支提交 PR 时构建，也可在 GitHub 的 **Actions → Build portable (Windows) → Run workflow** 手动运行。
+[Build portable (Windows)](.github/workflows/portable.yml) 使用 `windows-2025` runner，**仅手动触发**，推送分支、标签或提交 PR 均不自动构建。在 GitHub 的 **Actions → Build portable (Windows) → Run workflow** 选择分支；勾选 **Release a Version (GitHub)** 后构建并发布 GitHub Release，不勾选则仅构建并上传 artifacts（默认）。
+
+版本规则与 TTPlayer 的手动发布流程一致：使用构建开始时的**北京时间** `yyyy.MM.dd`，例如 `2026.11.12`；同一天再次发布自动使用 `2026.11.12p1`、`2026.11.12p2`，检查已有标签和 Release（包括草稿），不覆盖已有版本。两个便携包共用构建前分配的版本，ZIP 文件名和主程序版本信息同步更新；发布流程串行执行，避免同时分配相同版本。仅构建时使用当天日期，不占用标签。
 
 流程下载 Git LFS 中的 SDL、SVG 和缓存资源，安装 .NET 10 SDK，运行缓存导入检查，编译 x86 / x64 输入组件及 x86 背景模糊组件，再生成不含 .NET 运行时的单文件便携包。Visual C++、Windows SDK 和 7-Zip 使用 [Windows runner 预装工具](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)。构建直接读取已校验的缓存归档，无需安装小白、注册输入法或启动 GUI。
 
 流程矩阵同时构建 `xiaobai` 原版和 `independent` 独立版。独立版额外安装仅供验证使用的 x86 .NET 桌面运行时，在未安装小白的 runner 中检查启动、中文候选、缓存复用、损坏文件拒绝及离线索引重建；不把运行时加入 ZIP。
 
-完成后在该次运行的 **Artifacts** 下载 `GamePadT9-Portable-<xiaobai 或 independent>-Windows-x64-NoRuntime-<运行编号>-<重试编号>`，其中包含便携 ZIP 和 `.sha256` 校验文件，保留 30 天。独立版另提供 `GamePadT9-Rime-Source-*` 对应词库源码归档。ZIP 内部仍使用极限压缩；[artifact 上传](https://github.com/actions/upload-artifact) 关闭外层重复压缩。标签构建同样提供 artifact，不自动发布 GitHub Release。
+完成后在该次运行的 **Artifacts** 下载 `GamePadT9-Portable-<xiaobai 或 independent>-Windows-x64-NoRuntime-<日期版本>-<运行编号>`，其中包含便携 ZIP 和 `.sha256` 校验文件，保留 30 天。独立版 artifact 还包含 `GamePadT9-Rime-Source-<日期版本>.zip` 及其校验文件；另保留 `GamePadT9-Rime-Source-*` 原始源码资料 artifact。同次运行重试时复用已成功的构建，重新构建则替换该次运行的同名 artifact。便携 ZIP 内部仍使用极限压缩；[artifact 上传](https://github.com/actions/upload-artifact) 关闭外层重复压缩。
+
+勾选发布时，只有两种便携包均构建、验证成功后，才会统一校验 SHA256 并创建以日期版本为标签和标题的 **Release**，附带两个便携 ZIP、对应词库源码 ZIP 及各自的 `.sha256` 文件，并提供更新日志链接和运行说明。使用仓库自带的 `GITHUB_TOKEN`，仅发布 job 获取 `contents: write` 权限，无需额外配置 PAT。
 
 从仅含仓库文件的新目录本地复现：
 
@@ -46,6 +50,8 @@ git lfs pull
 
 本地需 .NET 10 SDK、Visual C++ 构建工具和 Windows SDK、7-Zip。缓存维护方法及来源见 [data/MIXED-CACHE.md](data/MIXED-CACHE.md)。图形界面、输入法切换及真实手柄测试仍需在配置好的交互式 Windows 环境中运行，CI 打包通过不代表这些交互检查已执行。
 
+本地打包不传版本时仍使用原有时间戳文件名；可通过 `-PackageVersion 2026.11.12`（或 `2026.11.12p1`）指定与 Release 一致的日期版本。版本分配规则可独立运行 `./tests/Packaging/ReleaseVersion.Tests.ps1` 验证，无需构建程序或访问 GitHub。
+
 ## 旧版 Steam Controller（2015）
 
 支持通过 USB、无线接收器或 BLE 连接的旧版手柄。设备列表显示 `Steam Controller 2015`，使用 Steam 官方旧版 SVG 图标。左、右触控板分别作为左、右摇杆使用，触摸位置直接选择九格或四格；触摸优先于实体左摇杆，松手后恢复实体摇杆，右触控板松手即回中。完整按压触控板对应 L3 / R3，扳机沿用已有选择设置。
@@ -54,9 +60,11 @@ git lfs pull
 
 旧版左触控板兼作方向键。为避免选字或按压时误翻页，使用 **左 / 右背部握把键** 前后翻页，界面显示对应图标。
 
-旧版支持使用项目修改版 SDL 3.4.16，补齐原驱动未公开的双触控板坐标、触摸状态与独立按压。主程序仍为 C#，无需安装 Windows 驱动；正常构建及 Windows Actions 使用仓库中的 DLL。来源、补丁、固定源码校验及重建命令见 [SDL 构建说明](third_party/SDL3/BUILD.md)。真实设备测试须先退出其它 GamePad T9 实例再执行采样。
+旧版支持使用项目修改版 SDL 3.4.20，补齐原驱动未公开的双触控板坐标、触摸状态与独立按压。主程序仍为 C#，无需安装 Windows 驱动；正常构建及 Windows Actions 使用仓库中的 DLL。来源、补丁、固定源码校验及重建命令见 [SDL 构建说明](third_party/SDL3/BUILD.md)。真实设备测试须先退出其它 GamePad T9 实例再执行采样。
 
 2026-09-21 已用 USB 连接的旧版实机（VID `28de` / PID `1102`）完成采样：左右触控板均覆盖九个区域，按压与松手可识别；A/B/X/Y、两枚菜单键、左右肩键、左右扳机和背部握把键均有响应。实体左摇杆单独按压可识别为 L3，未触发触控板按压。当前映射无需调整；无线接收器和 BLE 尚未进行实机验证。人工采样应先确认程序已在运行，再开始操作，避免漏掉采样启动前的按键。
+
+2026-11-12 升级至 SDL 3.4.20，保留旧版触控板补丁并通过 174 项虚拟设备检查；显式固定 ExCSS 4.3.2，SVG 样式解析及 x86 主程序全部手柄图标在 100%、125%、150%、200% 缩放下的 320 项绘制检查通过。独立便携包另通过 159 项基础自检，以及缓存复用、损坏文件拒绝和离线索引重建检查。上述实机采样针对升级前版本；新版 SDL 尚未进行实机复测。
 
 ## 新版 Steam Controller
 
@@ -67,7 +75,7 @@ git lfs pull
 - 左右触控板按压分别等同 L3 / R3。数字模式下按压所选侧触控板输入 0，扳机输入选区数字；中文模式下按压仍选整组。英文四格和左侧字母优先规则沿用摇杆逻辑。
 - 设置中交换左右摇杆后，触控板跟随同侧设置交换职责。PS4 / PS5 的单触控板不参与这套映射。
 
-使用现有 SDL 3.4.16 的 [Triton HIDAPI 驱动](https://github.com/libsdl-org/SDL/blob/release-3.4.16/src/joystick/hidapi/SDL_hidapi_steam_triton.c) 和 [触控板接口](https://wiki.libsdl.org/SDL3/SDL_GetGamepadTouchpadFinger)，无需通过 Steam Input 模拟摇杆。Steam 中已有的桌面或游戏配置仍由 Steam 管理。
+使用现有 SDL 3.4.20 的 [Triton HIDAPI 驱动](https://github.com/libsdl-org/SDL/blob/release-3.4.20/src/joystick/hidapi/SDL_hidapi_steam_triton.c) 和 [触控板接口](https://wiki.libsdl.org/SDL3/SDL_GetGamepadTouchpadFinger)，无需通过 Steam Input 模拟摇杆。Steam 中已有的桌面或游戏配置仍由 Steam 管理。
 
 排查设备时，可运行 `GamePadT9.exe --probe-controllers 10` 采样 10 秒（支持 1–60 秒），报告识别型号、触控板数量、触摸区域、按压及松手状态。该命令不加载 Rime、不启动输入会话。`--verify-gamepads` 使用进程内 SDL 虚拟设备验证触控板映射，也无需安装输入法。
 
@@ -371,7 +379,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1
 
 默认 `build.ps1` 构建标准 TSF 扩展，产物位置记录在 `artifacts/proxy-<架构>-path.txt`；旧 `build-xiaobai.ps1` 仅作为历史源码方案保留，可用 `-LegacyXiaobaiSource` 构建，不随便携包分发。输入法切换辅助组件位置记录在 `artifacts/input-method-<架构>-path.txt`，无需注册。只改 C# 时可运行 `scripts/build.ps1 -SkipXiaobai -SkipInputMethodControl`。
 
-项目包含带旧版触控板补丁的 SDL 3.4.16 x86 DLL，构建时自动复制到主程序旁边。Steam 图标按 `SteamGlyphs.props` 只嵌入当前界面使用的 60 个 SVG，由 SVG.NET 3.4.8 绘制；首次构建需要从 NuGet 还原 `Svg` 及其 ExCSS 依赖。手柄更新须使用本次附带的 SDL 库；单文件便携包会一并内嵌，无需重新注册输入法组件。
+项目包含带旧版触控板补丁的 SDL 3.4.20 x86 DLL，构建时自动复制到主程序旁边。Steam 图标按 `SteamGlyphs.props` 只嵌入当前界面使用的 60 个 SVG，由 SVG.NET 3.4.8 绘制；首次构建需要从 NuGet 还原 `Svg` 和显式固定的 ExCSS 4.3.2。手柄更新须使用本次附带的 SDL 库；单文件便携包会一并内嵌，无需重新注册输入法组件。
 
 主程序构建会自动调用 `scripts/build-backdrop.ps1`，增量生成 x86 `GamePadT9.Backdrop.dll`。该小型 C++20 组件使用 Windows SDK 中的 C++/WinRT、Composition 和 Direct2D，需 Visual C++ 构建工具及对应 Windows SDK；不依赖 Win2D 或 Windows App SDK。主程序与界面逻辑仍为 C#，发布时模糊组件合并进 EXE，无需注册。`-SkipXiaobai -SkipInputMethodControl` 仍会更新这个界面组件。
 

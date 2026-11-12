@@ -1,6 +1,6 @@
 # GamePad T9 SDL build
 
-`win-x86/SDL3.dll` is a modified SDL 3.4.16 build, not the upstream binary.
+`win-x86/SDL3.dll` is a modified SDL 3.4.20 build, not the upstream binary.
 The zlib license in `LICENSE.txt` is unchanged. The patch is confined to
 `src/joystick/hidapi/SDL_hidapi_steam.c` and `src/joystick/SDL_gamepad.c`.
 
@@ -24,8 +24,8 @@ To reproduce with Visual C++ x86 tools, Windows SDK, Git and CMake available:
 ./scripts/build-sdl.ps1
 ```
 
-The script downloads the official [SDL 3.4.16 source ZIP](https://github.com/libsdl-org/SDL/releases/download/release-3.4.16/SDL3-3.4.16.zip),
-verifies SHA256 `5F399FDFBC040169EF4418A3CB99CCC5A0641681F7CCC1DA66EEEC3C97FA4076`,
+The script downloads the official [SDL 3.4.20 source ZIP](https://github.com/libsdl-org/SDL/releases/download/release-3.4.20/SDL3-3.4.20.zip),
+verifies SHA256 `9850235FA6C9E99631DBE6F30DD620E4FBA2E9C879B551A8C479E505E9E3F617`,
 applies the checked-in patch in a fresh directory under `artifacts`, and builds
 Release / Win32 with `SDL_LIBC=OFF`. This avoids a separate MSVC runtime dependency.
 Use `-SourceArchive <zip>` for an offline build or `-PrepareOnly` to verify just

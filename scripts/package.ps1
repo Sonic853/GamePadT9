@@ -1,6 +1,8 @@
-param([switch]$SkipNative, [switch]$SkipMixedCache, [string]$SevenZipPath, [string]$MixedCacheArchive, [switch]$Independent, [string]$RuntimeArchive)
+param([switch]$SkipNative, [switch]$SkipMixedCache, [string]$SevenZipPath, [string]$MixedCacheArchive, [switch]$Independent, [string]$RuntimeArchive, [string]$PackageVersion)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+. (Join-Path $PSScriptRoot 'version.ps1')
+$version = if ($PackageVersion) { Get-GamePadT9BuildVersion $PackageVersion } else { $null }
 if ($SkipMixedCache -and $MixedCacheArchive) { throw '-SkipMixedCache and -MixedCacheArchive cannot be used together.' }
 if ($RuntimeArchive -and !$Independent) { throw '-RuntimeArchive requires -Independent.' }
 if ($Independent) {
@@ -40,7 +42,13 @@ if (!$SkipNative) {
     }
 }
 # Publish into a new staging folder without any machine's settings or learned data.
-dotnet publish (Join-Path $projectRoot 'src\GamePadT9\GamePadT9.csproj') -c Release -r win-x86 --self-contained false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $folder --nologo
+$versionArguments = @()
+if ($version) {
+    $versionArguments = @("-p:Version=$($version.Numeric)", "-p:AssemblyVersion=$($version.Numeric)",
+        "-p:FileVersion=$($version.Numeric)", "-p:InformationalVersion=$($version.Name)",
+        '-p:IncludeSourceRevisionInInformationalVersion=false')
+}
+dotnet publish (Join-Path $projectRoot 'src\GamePadT9\GamePadT9.csproj') -c Release -r win-x86 --self-contained false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $folder @versionArguments --nologo
 if ($LASTEXITCODE -ne 0) { throw 'Framework-dependent publish failed.' }
 $hashes = [ordered]@{}
 foreach ($architecture in @('x64','x86')) {
@@ -73,7 +81,9 @@ if (!$SkipMixedCache -and !$MixedCacheArchive) {
 $dist = Join-Path $projectRoot 'dist'
 New-Item -ItemType Directory -Force $dist | Out-Null
 $archivePrefix = if ($Independent) { 'GamePadT9-Portable-Independent-Windows-x64-NoRuntime-' } else { 'GamePadT9-Portable-Windows-x64-NoRuntime-' }
-$zip = Join-Path $dist ($archivePrefix + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.zip')
+$archiveVersion = if ($version) { $version.Name } else { Get-Date -Format 'yyyyMMdd-HHmmss' }
+$zip = Join-Path $dist ($archivePrefix + $archiveVersion + '.zip')
+if (Test-Path -LiteralPath $zip) { throw "Package archive already exists; choose another version or remove it first: $zip" }
 Push-Location -LiteralPath $stage
 try {
     # Maximum documented Deflate settings, compatible with Windows ZIP extraction.

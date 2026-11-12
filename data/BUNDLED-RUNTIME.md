@@ -1,6 +1,6 @@
 # 独立便携包的内置 Rime 数据
 
-独立版固定使用 **Rime 1.17.0**（2026-09-10 核对的官方最新稳定版），来自 [官方发行页](https://github.com/rime/librime/releases/tag/1.17.0) 的 `rime-33e7814-Windows-msvc-x86.7z`。使用原版 DLL，不修改小白安装目录。DLL 只依赖 Windows 的 `dbghelp.dll`、`KERNEL32.dll`、`USER32.dll`，已内置相关引擎库与 Lua、octagram、predict 模块，无需另装 VC++ 运行库。
+独立版固定使用 **Rime 1.17.0**（2026-11-12 核对的官方最新稳定版），来自 [官方发行页](https://github.com/rime/librime/releases/tag/1.17.0) 的 `rime-33e7814-Windows-msvc-x86.7z`。使用原版 DLL，不修改小白安装目录。DLL 只依赖 Windows 的 `dbghelp.dll`、`KERNEL32.dll`、`USER32.dll`，已内置相关引擎库与 Lua、octagram、predict 模块，无需另装 VC++ 运行库。
 
 | 文件 | 用途 |
 |---|---|

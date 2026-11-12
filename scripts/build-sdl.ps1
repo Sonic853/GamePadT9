@@ -1,8 +1,8 @@
 param([string]$SourceArchive, [switch]$PrepareOnly)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$version = '3.4.16'
-$sourceHash = '5F399FDFBC040169EF4418A3CB99CCC5A0641681F7CCC1DA66EEEC3C97FA4076'
+$version = '3.4.20'
+$sourceHash = '9850235FA6C9E99631DBE6F30DD620E4FBA2E9C879B551A8C479E505E9E3F617'
 if (!$SourceArchive) {
     $SourceArchive = Join-Path $projectRoot "artifacts/SDL3-$version-source.zip"
     if (!(Test-Path -LiteralPath $SourceArchive)) {

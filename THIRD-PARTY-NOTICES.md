@@ -3,7 +3,7 @@
 ## Rime and bundled input data (independent edition only)
 
 The independent edition includes the official unmodified x86 Rime **1.17.0** DLL,
-the latest stable release verified on 2026-09-10, and input data compiled from
+the latest stable release verified on 2026-11-12, and input data compiled from
 Xiaobai T9's public distribution. The installed-Xiaobai portable edition does
 not bundle these files. See [the exact sources, hashes and component licenses](data/bundled-licenses/SOURCES.md)
 and [reproduction instructions](data/BUNDLED-RUNTIME.md). The independent ZIP
@@ -38,18 +38,18 @@ Source: https://github.com/svg-net/SVG/tree/9d564f47c82780df4b703ee0bf2436c6a227
 
 SVG.NET is distributed under the Microsoft Public License (MS-PL). The original license is in `third_party/SVG.NET/LICENSE.txt` and is copied into application output as `licenses/SVG.NET.txt`.
 
-## ExCSS 4.2.3
+## ExCSS 4.3.2
 
-ExCSS is the CSS parser dependency of SVG.NET. Source: https://github.com/TylerBrinks/ExCSS
+ExCSS is the CSS parser dependency of SVG.NET, explicitly pinned to the reviewed stable version rather than SVG.NET's minimum dependency. Source: https://github.com/TylerBrinks/ExCSS/tree/0a75db4bfffe9dc26555fd8b9ca152f6f9a2760f
 
 ExCSS is distributed under the MIT license. The original license is in `third_party/ExCSS/LICENSE.txt` and is copied into application output as `licenses/ExCSS.txt`.
 
-## SDL 3.4.16
+## SDL 3.4.20
 
-Official release: https://github.com/libsdl-org/SDL/releases/tag/release-3.4.16
+Official release: https://github.com/libsdl-org/SDL/releases/tag/release-3.4.20
 
-`third_party/SDL3/win-x86/SDL3.dll` is a **GamePad T9 modified x86 build of SDL 3.4.16**, built from the official `SDL3-3.4.16.zip` source. The changes expose both Steam Controller 2015 pads' unrotated coordinates, contact and click states through the gamepad API; other controller decoding, including Triton, is retained. The C# host calls only the joystick/gamepad APIs. This is an application library, not an installed Windows driver. SDL is distributed under the zlib license; the full original license is in `third_party/SDL3/LICENSE.txt` and is copied into application output as `licenses/SDL3.txt`. Reproduction instructions, source/DLL hashes and the patch are in `third_party/SDL3/BUILD.md`, `build-info.json` and `steam-controller-2015.patch`, also distributed under `licenses/`.
+`third_party/SDL3/win-x86/SDL3.dll` is a **GamePad T9 modified x86 build of SDL 3.4.20**, built from the official `SDL3-3.4.20.zip` source. The changes expose both Steam Controller 2015 pads' unrotated coordinates, contact and click states through the gamepad API; other controller decoding, including Triton, is retained. The C# host calls only the joystick/gamepad APIs. This is an application library, not an installed Windows driver. SDL is distributed under the zlib license; the full original license is in `third_party/SDL3/LICENSE.txt` and is copied into application output as `licenses/SDL3.txt`. Reproduction instructions, source/DLL hashes and the patch are in `third_party/SDL3/BUILD.md`, `build-info.json` and `steam-controller-2015.patch`, also distributed under `licenses/`.
 
-SHA256 of the release archive: `1A784CB2A5C64D56FE7A62090FE9D242D9865F235E4EA9678F1A6BA4E693E7DE`.
+SHA256 of the source archive: `9850235FA6C9E99631DBE6F30DD620E4FBA2E9C879B551A8C479E505E9E3F617`.
 
-SHA256 of the included x86 DLL: `47D508B4232CF9462096BDB6F613A330D9A94A7EB09C305FAD073430C6531920`.
+SHA256 of the included x86 DLL: `43A547300AA6D8E3E383FF90207E88D13BCE66FCC662D9AE13682920792080AC`.

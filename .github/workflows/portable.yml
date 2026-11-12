@@ -1,23 +1,55 @@
 name: Build portable (Windows)
+run-name: Windows portable - ${{ inputs.release_a_version && 'Release' || 'Build only' }} - ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
-  push:
-    branches: [master, main]
-    tags: ['v*']
-  pull_request:
-    branches: [master, main]
+    inputs:
+      release_a_version:
+        description: Release a Version (GitHub)
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: portable-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Reserve one date version through both matrix builds and publication.
+  group: ${{ inputs.release_a_version && 'manual-portable-release' || format('manual-portable-build-{0}', github.run_id) }}
+  cancel-in-progress: false
 
 jobs:
+  version:
+    name: Allocate Beijing date version
+    runs-on: windows-2025
+    timeout-minutes: 5
+    outputs:
+      release_version: ${{ steps.version.outputs.version }}
+      previous_version: ${{ steps.version.outputs.previous }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout version scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify date version rules
+        run: ./tests/Packaging/ReleaseVersion.Tests.ps1
+
+      - name: Allocate final version before compilation
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REQUESTED: ${{ inputs.release_a_version }}
+        run: |
+          ./scripts/resolve-release-version.ps1 -Repository $env:GITHUB_REPOSITORY `
+            -ReleaseRequested:($env:RELEASE_REQUESTED -eq 'true')
+
   portable:
     name: Windows portable (${{ matrix.edition }})
+    needs: version
     runs-on: windows-2025
     timeout-minutes: 30
     strategy:
@@ -30,16 +62,17 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
+      PACKAGE_VERSION: ${{ needs.version.outputs.release_version }}
 
     steps:
       - name: Checkout source and LFS assets
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
           persist-credentials: false
 
       - name: Set up .NET 10 SDK
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: '10.0.x'
 
@@ -54,8 +87,8 @@ jobs:
       # The x64 SDK cross-publishes the x86 host without running it or Rime.
       - name: Build native components and portable EXE
         run: |
-          if ('${{ matrix.edition }}' -eq 'independent') { ./scripts/package.ps1 -Independent }
-          else { ./scripts/package.ps1 -MixedCacheArchive ./data/mixed-cache.zip }
+          if ('${{ matrix.edition }}' -eq 'independent') { ./scripts/package.ps1 -Independent -PackageVersion $env:PACKAGE_VERSION }
+          else { ./scripts/package.ps1 -MixedCacheArchive ./data/mixed-cache.zip -PackageVersion $env:PACKAGE_VERSION }
 
       - name: Install x86 desktop runtime for independent verification
         if: matrix.edition == 'independent'
@@ -72,6 +105,21 @@ jobs:
           $archive = (Get-Content -LiteralPath artifacts/portable-archive-path.txt -Raw).Trim()
           ./tests/Packaging/Independent.Tests.ps1 -Archive $archive -RegenerateCache
 
+      - name: Package corresponding dictionary source data
+        if: matrix.edition == 'independent'
+        run: |
+          $source = Join-Path $env:RUNNER_TEMP 'rime-source'
+          New-Item -ItemType Directory -Path "$source/data", "$source/scripts" -Force | Out-Null
+          Copy-Item -LiteralPath data/bundled-source.zip, data/BUNDLED-RUNTIME.md -Destination "$source/data"
+          Copy-Item -LiteralPath data/bundled-licenses -Destination "$source/data" -Recurse
+          Copy-Item -LiteralPath scripts/prepare-bundled-runtime.ps1 -Destination "$source/scripts"
+          Copy-Item -LiteralPath LICENSE -Destination $source
+          $archive = Join-Path $PWD "dist/GamePadT9-Rime-Source-$env:PACKAGE_VERSION.zip"
+          Compress-Archive -Path "$source/*" -DestinationPath $archive -CompressionLevel NoCompression
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          $name = [IO.Path]::GetFileName($archive)
+          [IO.File]::WriteAllText($archive + '.sha256', "$hash  $name`r`n")
+
       - name: Record package checksum
         run: |
           $archive = (Get-Content -LiteralPath artifacts/portable-archive-path.txt -Raw).Trim()
@@ -83,6 +131,7 @@ jobs:
           $requirement = if ('${{ matrix.edition }}' -eq 'independent') { 'Includes Rime 1.17.0 and a dictionary; Xiaobai and TSF components are optional for clipboard editing.' } else { 'Requires an installed Xiaobai T9 on the target PC.' }
           @(
             '### GamePad T9 portable package'
+            "- Version: $env:PACKAGE_VERSION"
             "- File: $name ($size MiB)"
             "- SHA256: $checksum"
             '- Includes x86/x64 input components and the mixed-input index cache.'
@@ -91,22 +140,24 @@ jobs:
             '- Download the ZIP and checksum from the artifact below.'
           ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
 
-      - name: Upload portable ZIP and SHA256
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - name: Upload portable ZIPs and SHA256
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: GamePadT9-Portable-${{ matrix.edition }}-Windows-x64-NoRuntime-${{ github.run_number }}-${{ github.run_attempt }}
+          # Stable names let a retried release job reuse successful matrix builds.
+          name: GamePadT9-Portable-${{ matrix.edition }}-Windows-x64-NoRuntime-${{ env.PACKAGE_VERSION }}-${{ github.run_number }}
           path: |
             dist/*.zip
             dist/*.zip.sha256
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
+          overwrite: true
 
       - name: Upload corresponding dictionary source data
         if: matrix.edition == 'independent'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: GamePadT9-Rime-Source-${{ github.run_number }}-${{ github.run_attempt }}
+          name: GamePadT9-Rime-Source-${{ env.PACKAGE_VERSION }}-${{ github.run_number }}-${{ github.run_attempt }}
           path: |
             data/bundled-source.zip
             data/BUNDLED-RUNTIME.md
@@ -115,3 +166,71 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
+
+  github_release:
+    name: GitHub Release
+    needs: [version, portable]
+    if: inputs.release_a_version
+    runs-on: windows-2025
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.release_version }}
+      PREVIOUS_VERSION: ${{ needs.version.outputs.previous_version }}
+    steps:
+      - name: Download both verified editions and dictionary sources
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: GamePadT9-Portable-*-Windows-x64-NoRuntime-${{ env.RELEASE_VERSION }}-${{ github.run_number }}
+          path: release
+          merge-multiple: true
+
+      - name: Verify packages and publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:RELEASE_VERSION
+          if ($version -notmatch '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(?:p[1-9][0-9]*)?$') {
+            throw 'Missing or invalid release version.'
+          }
+          $packages = @(
+            "GamePadT9-Portable-Windows-x64-NoRuntime-$version.zip"
+            "GamePadT9-Portable-Independent-Windows-x64-NoRuntime-$version.zip"
+            "GamePadT9-Rime-Source-$version.zip"
+          )
+          $attachments = foreach ($name in $packages) {
+            $archive = Join-Path release $name
+            $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+            $checksum = $archive + '.sha256'
+            if ((Get-Content -LiteralPath $checksum -Raw).Trim() -cne "$hash  $name") {
+              throw "Release package SHA256 mismatch: $name"
+            }
+            $archive
+            $checksum
+          }
+          $repoUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY"
+          $logUrl = if ($env:PREVIOUS_VERSION) { "$repoUrl/compare/$env:PREVIOUS_VERSION...$version" }
+                    else { "$repoUrl/commits/$version" }
+          @(
+            "**完整更新日志**: $logUrl"
+            ''
+            '### 下载与运行'
+            "- 原版：GamePadT9-Portable-Windows-x64-NoRuntime-$version.zip，需要安装小白 T9。"
+            "- 独立版：GamePadT9-Portable-Independent-Windows-x64-NoRuntime-$version.zip，内置 Rime 引擎和词库，无需安装小白 T9。"
+            '- 两种便携包任选其一；均需安装 .NET 10 桌面运行时（Windows x86），不包含 .NET 运行时。'
+            '- 解压完整文件夹后运行 Start.cmd；输入法组件可在设置中注册或安装。'
+            '- 每个 ZIP 均附带 .sha256 校验文件。'
+            "- 对应词库源码、许可证与准备脚本：GamePadT9-Rime-Source-$version.zip（不用于直接运行）。"
+            ''
+            "[本次构建的源码与说明]($repoUrl/tree/$env:GITHUB_SHA)"
+          ) | Set-Content -LiteralPath release/release-notes.md -Encoding utf8
+          gh release create "$version" @attachments `
+            --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" `
+            --title "$version" --notes-file release/release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub publication failed; existing releases are not overwritten.' }
+          "Published [$version]($repoUrl/releases/tag/$version)." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
