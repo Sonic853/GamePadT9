@@ -45,6 +45,7 @@ internal sealed class RimeEngine : IDisposable
         Directory.CreateDirectory(settings.UserPath);
         Directory.CreateDirectory(Path.Combine(settings.UserPath, "logs"));
         Directory.CreateDirectory(Path.Combine(settings.UserPath, "build"));
+        Program.VerificationProgress("Rime: locating or importing the mixed index");
         var mixed = MixedSchema.Locate(settings, useBundledCache ? Path.Combine(Settings.FindRoot(), "cache", "mixed") : null);
         Directory.CreateDirectory(mixed.Build);
         var traits = new Traits
@@ -58,6 +59,7 @@ internal sealed class RimeEngine : IDisposable
         };
         try
         {
+            Program.VerificationProgress($"Rime: native setup (cache ready: {mixed.Ready})");
             Native.RimeSetup(ref traits);
             if (!mixed.Ready)
             {
@@ -66,22 +68,29 @@ internal sealed class RimeEngine : IDisposable
                 deploy.Shared = Utf8(mixed.Source); deploy.User = deploy.Shared;
                 try
                 {
+                    Program.VerificationProgress("Rime: initializing the offline index compiler");
                     Native.RimeDeployerInitialize(ref deploy); initialized = true;
                     var source = mixed.WriteSource(settings.Schema);
+                    Program.VerificationProgress("Rime: compiling the mixed spelling index");
                     if (Native.RimeDeploySchema(source) == 0 || !File.Exists(Path.Combine(mixed.Build, mixed.Id + ".prism.bin")) ||
                         !File.Exists(Path.Combine(mixed.Build, mixed.Id + ".schema.yaml")))
                         throw new InvalidOperationException("无法生成混合拼音方案，请检查日志：" + Path.Combine(settings.UserPath, "logs"));
                     File.WriteAllText(Path.Combine(mixed.Build, "ready"), mixed.Id);
                     mixed.SaveManifest();
                 }
-                finally { Native.RimeFinalize(); initialized = false; }
+                finally {
+                    Program.VerificationProgress("Rime: finalizing the offline index compiler");
+                    Native.RimeFinalize(); initialized = false;
+                }
             }
+            Program.VerificationProgress("Rime: initializing the input engine");
             Native.RimeInitialize(ref traits); initialized = true;
             session = Native.RimeCreateSession();
             if (session == 0 || Native.RimeSelectSchema(session, mixed.Id) == 0)
                 throw new InvalidOperationException("无法加载 GamePad T9 混合拼音方案，请检查日志：" + Path.Combine(settings.UserPath, "logs"));
             Native.RimeSetOption(session, "ascii_mode", 0);
             Refresh();
+            Program.VerificationProgress("Rime: input session ready");
         }
         catch { Dispose(); throw; }
     }
@@ -157,7 +166,11 @@ internal sealed class RimeEngine : IDisposable
     public void Dispose()
     {
         if (session != 0) { Native.RimeDestroySession(session); session = 0; }
-        if (initialized) { Native.RimeFinalize(); initialized = false; }
+        if (initialized) {
+            Program.VerificationProgress("Rime: finalizing the input engine");
+            Native.RimeFinalize(); initialized = false;
+            Program.VerificationProgress("Rime: input engine finalized");
+        }
         foreach (var p in strings) Marshal.FreeCoTaskMem(p);
         strings.Clear();
     }

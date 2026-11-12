@@ -7,7 +7,10 @@ internal static class CacheValidation
     internal static int Run(string root)
     {
         var checks = new List<string>();
-        void Check(bool ok, string name) { if (!ok) throw new InvalidOperationException("FAILED: " + name); checks.Add(name); }
+        void Check(bool ok, string name) {
+            if (!ok) throw new InvalidOperationException("FAILED: " + name);
+            checks.Add(name); Program.VerificationProgress("Cache: " + name);
+        }
         var settings = Settings.Load(root);
         var source = MixedSchema.Locate(settings);
         Check(source.Ready, "The existing v2 cache is reused without deployment");
@@ -59,6 +62,7 @@ internal static class CacheValidation
             var destination = Path.Combine(isolated.UserPath, "lua", Path.GetRelativePath(lua, file));
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!); File.Copy(file, destination);
         }
+        Program.VerificationProgress("Cache: starting real offline index regeneration");
         using (var engine = new RimeEngine(isolated, useBundledCache: false))
         {
             Check(MixedSchema.Locate(isolated).Ready, "The engine regenerates a missing index and saves a reusable manifest");

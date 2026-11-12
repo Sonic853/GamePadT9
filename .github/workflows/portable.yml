@@ -38,6 +38,9 @@ jobs:
       - name: Verify date version rules
         run: ./tests/Packaging/ReleaseVersion.Tests.ps1
 
+      - name: Verify bounded process runner
+        run: ./tests/Packaging/VerificationProcess.Tests.ps1
+
       - name: Allocate final version before compilation
         id: version
         env:
@@ -62,6 +65,7 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
+      DOTNET_DISABLE_GUI_ERRORS: '1'
       PACKAGE_VERSION: ${{ needs.version.outputs.release_version }}
 
     steps:
@@ -92,18 +96,43 @@ jobs:
 
       - name: Install x86 desktop runtime for independent verification
         if: matrix.edition == 'independent'
+        timeout-minutes: 5
         run: |
           $installer = Join-Path $env:RUNNER_TEMP 'dotnet-install.ps1'
           Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $installer
           $runtime = Join-Path $env:RUNNER_TEMP 'dotnet-x86'
           & $installer -Channel 10.0 -Runtime windowsdesktop -Architecture x86 -InstallDir $runtime -NoPath
+          $runtimes = & (Join-Path $runtime 'dotnet.exe') --list-runtimes
+          if ($LASTEXITCODE -ne 0 -or !($runtimes -match '^Microsoft\.NETCore\.App 10\.0\.') -or
+              !($runtimes -match '^Microsoft\.WindowsDesktop\.App 10\.0\.')) {
+            throw 'The x86 .NET 10 desktop runtime was not installed correctly.'
+          }
+          $runtimes | Write-Output
           "DOTNET_ROOT_X86=$runtime" | Add-Content -LiteralPath $env:GITHUB_ENV
 
       - name: Verify independent runtime without Xiaobai
         if: matrix.edition == 'independent'
+        timeout-minutes: 12
         run: |
           $archive = (Get-Content -LiteralPath artifacts/portable-archive-path.txt -Raw).Trim()
           ./tests/Packaging/Independent.Tests.ps1 -Archive $archive -RegenerateCache
+
+      - name: Upload independent verification diagnostics
+        if: always() && matrix.edition == 'independent'
+        timeout-minutes: 2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: GamePadT9-Independent-Diagnostics-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            artifacts/iv-*/*.stdout.txt
+            artifacts/iv-*/*.stderr.txt
+            artifacts/iv-*/*.host.txt
+            artifacts/iv-*/*.process.json
+            artifacts/iv-*/**/logs/*
+            artifacts/iv-*/**/artifacts/*-validation.json
+            artifacts/independent-package-verification.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Package corresponding dictionary source data
         if: matrix.edition == 'independent'

@@ -36,6 +36,8 @@ Windows Xbox、PS4（DualShock 4）、PS5（DualSense）和 Steam Controller（2
 
 流程矩阵同时构建 `xiaobai` 原版和 `independent` 独立版。独立版额外安装仅供验证使用的 x86 .NET 桌面运行时，在未安装小白的 runner 中检查启动、中文候选、缓存复用、损坏文件拒绝及离线索引重建；不把运行时加入 ZIP。
 
+独立版验证逐阶段输出进度，每 15 秒报告仍在执行的阶段和 PID；普通子进程最多 120 秒，离线索引重建最多 300 秒，超时终止本次测试启动的进程树，不再无限等待。stdout/stderr 按 UTF-8 实时保存，Rime / SDL 初始化、编译和退出进度写入 stderr，不影响 stdout 的 JSON 报告。无论验证成功或失败，均上传 `GamePadT9-Independent-Diagnostics-*`（保留 7 天），包含各阶段日志、进程状态、.NET 主机跟踪及 Rime 日志。流程会先核对 x86 桌面运行时是否安装成功，便携包仍不内置 .NET 运行时。需要调整本地验证预算时可传 `-ProcessTimeoutSeconds` / `-CacheTimeoutSeconds`。
+
 完成后在该次运行的 **Artifacts** 下载 `GamePadT9-Portable-<xiaobai 或 independent>-Windows-x64-NoRuntime-<日期版本>-<运行编号>`，其中包含便携 ZIP 和 `.sha256` 校验文件，保留 30 天。独立版 artifact 还包含 `GamePadT9-Rime-Source-<日期版本>.zip` 及其校验文件；另保留 `GamePadT9-Rime-Source-*` 原始源码资料 artifact。同次运行重试时复用已成功的构建，重新构建则替换该次运行的同名 artifact。便携 ZIP 内部仍使用极限压缩；[artifact 上传](https://github.com/actions/upload-artifact) 关闭外层重复压缩。
 
 勾选发布时，只有两种便携包均构建、验证成功后，才会统一校验 SHA256 并创建以日期版本为标签和标题的 **Release**，附带两个便携 ZIP、对应词库源码 ZIP 及各自的 `.sha256` 文件，并提供更新日志链接和运行说明。使用仓库自带的 `GITHUB_TOKEN`，仅发布 job 获取 `contents: write` 权限，无需额外配置 PAT。

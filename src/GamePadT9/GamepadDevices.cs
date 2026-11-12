@@ -27,6 +27,7 @@ internal sealed class GamepadDevices : IDisposable
 
     internal GamepadDevices()
     {
+        Program.VerificationProgress("SDL: initializing gamepad drivers");
         Sdl.SDL_SetHint("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
         Sdl.SDL_SetHint("SDL_JOYSTICK_HIDAPI_PS4", "1");
         Sdl.SDL_SetHint("SDL_JOYSTICK_HIDAPI_PS5", "1");
@@ -35,6 +36,7 @@ internal sealed class GamepadDevices : IDisposable
             throw new InvalidOperationException("无法初始化手柄：" + Sdl.Error);
         Sdl.SDL_SetGamepadEventsEnabled(false);
         Sdl.SDL_SetJoystickEventsEnabled(false);
+        Program.VerificationProgress("SDL: gamepad drivers initialized");
     }
 
     internal bool Poll(string? preferred, out Gamepad state, bool rescan = false)
@@ -173,7 +175,9 @@ internal sealed class GamepadDevices : IDisposable
         if (disposed) return; disposed = true;
         foreach (var item in opened.Values) Sdl.SDL_CloseGamepad(item.Handle);
         opened.Clear(); Connected = []; Active = null;
+        Program.VerificationProgress("SDL: closing gamepad drivers");
         Sdl.SDL_QuitSubSystem(Sdl.GamepadSubsystem);
+        Program.VerificationProgress("SDL: gamepad drivers closed");
     }
 }
 

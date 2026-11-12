@@ -56,6 +56,7 @@ internal static class Program
             using var instanceLock = new Mutex(true, "Local\\GamePadT9.Validation.Host", out var first);
             if (!first) throw new InvalidOperationException("GamePad T9 已在运行。请先关闭已有实例。");
             Settings runtime;
+            VerificationProgress("Loading runtime settings");
             try { runtime = Settings.Load(root); }
             catch (Exception ex) when (PortableRuntime.IsPortable(root) && !BundledRuntime.Enabled(root) && !headless)
             {
@@ -64,6 +65,7 @@ internal static class Program
                 runtime = setup.Result;
             }
             Directory.CreateDirectory(Path.Combine(root, "artifacts"));
+            VerificationProgress("Starting the Rime engine");
             using var engine = new RimeEngine(runtime);
             if (args.Contains("--self-test")) return Validation.Run(root, engine);
             if (args.Length == 2 && args[0] == "--verify-independent")
@@ -120,6 +122,12 @@ internal static class Program
             return 1;
         }
     }
+
+    internal static void VerificationProgress(string stage)
+    {
+        if (Environment.GetEnvironmentVariable("GAMEPADT9_VERIFICATION_PROGRESS") == "1")
+            Console.Error.WriteLine($"[verification {DateTime.UtcNow:O}] {stage}");
+    }
 }
 
 internal static class Validation
@@ -156,8 +164,10 @@ internal static class Validation
         try { NumericInput.SendDigit(InputMode.T9, 5, 0); }
         catch (InvalidOperationException) { numericBlocked = true; }
         Check(numericBlocked && NumericInput.SentKeyEvents == 0, "NumPad injection is rejected outside numeric mode");
+        Program.VerificationProgress("Self-test: enumerating SDL gamepads");
         using var inputDevices = new GamepadDevices(); inputDevices.Poll(null, out _, true);
         var devices = inputDevices.Connected.Select(d => new { d.Instance, d.Name, d.Family }).ToArray();
+        Program.VerificationProgress("Self-test: composing Chinese candidates");
         // ni hao = 6 4 4 8 6 in the original physical-keypad encoding.
         foreach (var region in new[] { 5, 3, 3, 1, 5 }) engine.InputRegion(region);
         Check(engine.PendingCommit.Length == 0, "Original xiaobai T9 encodes without premature commit");
@@ -178,7 +188,9 @@ internal static class Validation
         var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
         Directory.CreateDirectory(Path.Combine(root, "artifacts"));
         File.WriteAllText(Path.Combine(root, "artifacts", "self-test.json"), json, new UTF8Encoding(false));
-        Console.WriteLine(json); return 0;
+        Console.WriteLine(json);
+        Program.VerificationProgress($"Self-test completed: {checks.Count} checks; disposing SDL and Rime");
+        return 0;
     }
     internal static bool Find(RimeEngine engine, string wanted)
     {
