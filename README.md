@@ -34,7 +34,7 @@ Windows Xbox、PS4（DualShock 4）、PS5（DualSense）和 Steam Controller（2
 
 流程下载 Git LFS 中的 SDL、SVG 和缓存资源，安装 .NET 10 SDK，运行缓存导入检查，编译 x86 / x64 输入组件及 x86 背景模糊组件，再生成不含 .NET 运行时的单文件便携包。Visual C++、Windows SDK 和 7-Zip 使用 [Windows runner 预装工具](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)。构建直接读取已校验的缓存归档，无需安装小白、注册输入法或启动 GUI。
 
-流程矩阵同时构建 `xiaobai` 原版和 `independent` 独立版。独立版额外安装仅供验证使用的 x86 .NET 桌面运行时，在未安装小白的 runner 中检查启动、中文候选、缓存复用、损坏文件拒绝及离线索引重建；不把运行时加入 ZIP。
+流程矩阵同时构建 `xiaobai` 原版和 `independent` 独立版。独立版额外安装仅供验证使用的 x86 .NET 基础运行时（`dotnet`，含主机和 `Microsoft.NETCore.App`）与桌面框架（`windowsdesktop`，仅含 `Microsoft.WindowsDesktop.App`，不能单独替代完整运行时），两者安装到同一目录。在未安装小白的 runner 中检查启动、中文候选、缓存复用、损坏文件拒绝及离线索引重建；不把运行时加入 ZIP。
 
 独立版验证逐阶段输出进度，每 15 秒报告仍在执行的阶段和 PID；普通子进程最多 120 秒，离线索引重建最多 300 秒，超时终止本次测试启动的进程树，不再无限等待。stdout/stderr 按 UTF-8 实时保存，Rime / SDL 初始化、编译和退出进度写入 stderr，不影响 stdout 的 JSON 报告。无论验证成功或失败，均上传 `GamePadT9-Independent-Diagnostics-*`（保留 7 天），包含各阶段日志、进程状态、.NET 主机跟踪及 Rime 日志。流程会先核对 x86 桌面运行时是否安装成功，便携包仍不内置 .NET 运行时。需要调整本地验证预算时可传 `-ProcessTimeoutSeconds` / `-CacheTimeoutSeconds`。
 

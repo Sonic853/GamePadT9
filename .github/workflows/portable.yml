@@ -101,6 +101,8 @@ jobs:
           $installer = Join-Path $env:RUNNER_TEMP 'dotnet-install.ps1'
           Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $installer
           $runtime = Join-Path $env:RUNNER_TEMP 'dotnet-x86'
+          # The WindowsDesktop ZIP does not include dotnet.exe, hostfxr or NETCore.
+          & $installer -Channel 10.0 -Runtime dotnet -Architecture x86 -InstallDir $runtime -NoPath
           & $installer -Channel 10.0 -Runtime windowsdesktop -Architecture x86 -InstallDir $runtime -NoPath
           $runtimes = & (Join-Path $runtime 'dotnet.exe') --list-runtimes
           if ($LASTEXITCODE -ne 0 -or !($runtimes -match '^Microsoft\.NETCore\.App 10\.0\.') -or
